@@ -90,7 +90,9 @@ def test_input_not_modified():
 def test_smooth_reduces_noise():
     rng = np.random.default_rng(2)
     y = 100 + rng.normal(0, 5, 2000)
-    assert np.std(smooth(y)) < 0.6 * np.std(y)
+    # окно 5 убирает ~30% шума, окно 11 — ~45%
+    assert np.std(smooth(y)) < 0.8 * np.std(y)
+    assert np.std(smooth(y, window=11)) < 0.6 * np.std(y)
 
 
 def test_smooth_keeps_si_peak_position():
@@ -113,7 +115,8 @@ def test_smooth_preserves_straight_line():
 
 
 def test_smooth_short_spectrum_and_even_window():
-    y = np.array([1.0, 2.0, 3.0, 2.0, 1.0, 0.5, 0.2])  # 7 точек < окна 11
+    y = np.array([1.0, 2.0, 3.0, 2.0, 1.0, 0.5, 0.2])
+    assert len(smooth(y, window=11)) == len(y)  # 7 точек < окна 11
     assert len(smooth(y)) == len(y)
     assert len(smooth(np.arange(20.0), window=10)) == 20  # чётное окно → 9
     short = np.array([1.0, 5.0, 1.0])
