@@ -25,3 +25,4 @@ print(meta)
 ## Прогресс
 
 - [x] Этап 1, шаг 1: `read_spectrum` в `io.py` + тесты
+- [x] Блокнот `notebooks/01_read_and_plot.ipynb`: чтение и график
