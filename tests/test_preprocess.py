@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ramancore.preprocess import crop, remove_spikes
+from ramancore.preprocess import crop, remove_spikes, smooth
 
 
 def lorentz(x, center, fwhm, amplitude):
@@ -83,3 +83,38 @@ def test_input_not_modified():
     before = y.copy()
     remove_spikes(y)
     assert np.array_equal(y, before)
+
+
+# ---------- smooth ----------
+
+def test_smooth_reduces_noise():
+    rng = np.random.default_rng(2)
+    y = 100 + rng.normal(0, 5, 2000)
+    assert np.std(smooth(y)) < 0.6 * np.std(y)
+
+
+def test_smooth_keeps_si_peak_position():
+    # Требование этапа 1: центр пика после обработки — с точностью 0.5 см⁻¹
+    x, y = noisy_si(step=0.5)
+    ys = smooth(y)
+    assert x[np.argmax(ys)] == pytest.approx(520.7, abs=0.5)
+
+
+def test_smooth_keeps_height_when_window_narrower_than_peak():
+    x = np.arange(100, 1000, 0.5)
+    y = lorentz(x, 520.7, 4, 1000)  # FWHM 4 см⁻¹ = 8 точек при шаге 0.5
+    assert smooth(y).max() > 0.9 * y.max()
+
+
+def test_smooth_preserves_straight_line():
+    # Полином 3-й степени точно воспроизводит прямую
+    y = np.linspace(0, 100, 50)
+    assert np.allclose(smooth(y), y)
+
+
+def test_smooth_short_spectrum_and_even_window():
+    y = np.array([1.0, 2.0, 3.0, 2.0, 1.0, 0.5, 0.2])  # 7 точек < окна 11
+    assert len(smooth(y)) == len(y)
+    assert len(smooth(np.arange(20.0), window=10)) == 20  # чётное окно → 9
+    short = np.array([1.0, 5.0, 1.0])
+    assert np.array_equal(smooth(short), short)  # слишком коротко — без изменений

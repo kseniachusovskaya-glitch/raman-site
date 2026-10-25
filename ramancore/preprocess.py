@@ -4,6 +4,7 @@
 """
 
 import numpy as np
+from scipy.signal import savgol_filter
 
 
 def crop(x, y, xmin=100, xmax=3200):
@@ -85,3 +86,28 @@ def remove_spikes(y, threshold=6, max_width=3):
     cleaned = y.copy()
     cleaned[spike] = np.interp(idx[spike], idx[~spike], y[~spike])
     return cleaned
+
+
+def smooth(y, window=11, polyorder=3):
+    """Сглаживание фильтром Савицкого–Голея.
+
+    Идея: в окне из window соседних точек данные приближаются полиномом
+    степени polyorder, и точка заменяется значением этого полинома.
+    В отличие от простого скользящего среднего, фильтр лучше сохраняет
+    положение и высоту пиков (Savitzky, Golay, Anal. Chem. 1964, 36, 1627).
+
+    Важно: window задаётся в ТОЧКАХ, а не в см⁻¹. Если окно шире
+    полуширины пика, пик становится ниже и шире. Поэтому для подгонки
+    пиков (FWHM, площадь) лучше брать несглаженный спектр.
+
+    Возвращает новый массив y.
+    """
+    y = np.asarray(y, dtype=float)
+    # Окно должно быть нечётным и не длиннее спектра.
+    # // — деление нацело: 10 // 2 = 5
+    window = min(window, len(y) if len(y) % 2 == 1 else len(y) - 1)
+    if window % 2 == 0:
+        window -= 1
+    if window <= polyorder:
+        return y.copy()  # спектр слишком короткий, сглаживать нечем
+    return savgol_filter(y, window, polyorder)
