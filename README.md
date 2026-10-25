@@ -28,3 +28,15 @@ print(meta)
 - [x] Блокнот `notebooks/01_read_and_plot.ipynb`: чтение и график
 - [x] Этап 1, шаг 2: `crop` и `remove_spikes` в `preprocess.py` + тесты, блокнот `02_crop_and_spikes.ipynb`
 - [x] Этап 1, шаг 3: `smooth` (Савицкий–Голей, окно 5 по умолчанию) + тесты, блокнот `03_smooth.ipynb`
+- [x] `peaks.py`: `find_peaks` (порог по размаху и по шуму) и `fit_peaks` (Лоренц / Гаусс / псевдо-Фойгт, линейный фон, погрешности 1σ), блокнот `04_peaks.ipynb`
+
+## Пример: анализ пика
+
+```python
+from ramancore.io import read_spectrum
+from ramancore.peaks import find_peaks, fit_peaks
+
+x, y, meta = read_spectrum("data/examples/synthetic_si.txt")
+table, fit = fit_peaks(x, y, find_peaks(x, y), shape="lorentz")
+print(table[["center", "center_err", "fwhm", "fwhm_err", "area", "area_err"]])
+```
