@@ -22,7 +22,8 @@ from ramancore.preprocess import process
 # Обязательные поля metadata.csv (схема из плана проекта) + file — путь к
 # исходному файлу относительно папки raw
 REQUIRED = ["id", "file", "material", "formula", "class", "laser_nm", "source", "license"]
-OPTIONAL = ["phase_or_polytype", "power_mW", "instrument", "temperature_K", "note"]
+OPTIONAL = ["phase_or_polytype", "orientation", "power_mW", "instrument", "temperature_K",
+            "url", "note"]
 
 # Параметры конвейера для базы. Пользовательский спектр при поиске
 # обрабатывается ТЕМИ ЖЕ параметрами — они сохраняются в spectra.npz.
@@ -52,11 +53,15 @@ def build_library(metadata_csv, raw_dir, out_dir, params=None):
     """Собирает базу: читает каждый файл из metadata_csv, обрабатывает
     конвейером process и сохраняет metadata.csv + spectra.npz в out_dir.
 
+    metadata_csv — путь к таблице или список путей (например, свои
+                   эталоны + RRUFF); таблицы склеиваются.
     params — параметры process; по умолчанию DEFAULT_PARAMS.
     Возвращает число эталонов в базе.
     """
     params = {**DEFAULT_PARAMS, **(params or {})}  # ** — объединение словарей
-    meta = pd.read_csv(metadata_csv)
+    if isinstance(metadata_csv, (str, Path)):  # один путь → список из одного
+        metadata_csv = [metadata_csv]
+    meta = pd.concat([pd.read_csv(p) for p in metadata_csv], ignore_index=True)
     _check_metadata(meta)
 
     rows = []
@@ -64,7 +69,7 @@ def build_library(metadata_csv, raw_dir, out_dir, params=None):
     for _, ref in meta.iterrows():
         x, y, m = read_spectrum(Path(raw_dir) / ref["file"], laser_nm=ref["laser_nm"])
         grid, y_processed, _ = process(x, y, m, **params)
-        rows.append(y_processed)
+        rows.append(y_processed.astype(np.float32))  # float32 — база вдвое меньше
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -84,6 +89,7 @@ def load_library(library_dir="data/library"):
       grid     — общая сетка x;
       spectra  — матрица (эталоны × точки сетки);
       metadata — pandas.DataFrame с описанием эталонов;
+      spectra_deriv — производные эталонов (длины 1), для hqi_deriv;
       params   — параметры конвейера, которыми обработаны эталоны.
     """
     library_dir = Path(library_dir)
@@ -91,9 +97,15 @@ def load_library(library_dir="data/library"):
     metadata = pd.read_csv(library_dir / "metadata.csv")
     if list(data["ids"]) != list(metadata["id"].astype(str)):
         raise ValueError("spectra.npz и metadata.csv не совпадают — пересоберите базу")
+    spectra = data["spectra"]
+    # Производные считаем один раз при загрузке, а не при каждом поиске
+    deriv = np.diff(spectra, axis=1)
+    norms = np.linalg.norm(deriv, axis=1, keepdims=True)
+    deriv = deriv / np.where(norms == 0, 1, norms)
     return {
         "grid": data["grid"],
-        "spectra": data["spectra"],
+        "spectra": spectra,
+        "spectra_deriv": deriv,
         "metadata": metadata,
         "params": json.loads(str(data["params"])),
     }

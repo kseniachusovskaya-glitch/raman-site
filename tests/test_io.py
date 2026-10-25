@@ -61,3 +61,20 @@ def test_raises_on_empty_file(tmp_path):
     f.write_text("no numbers here\n")
     with pytest.raises(ValueError):
         read_spectrum(f)
+
+
+def test_read_rruff_file(tmp_path):
+    from ramancore.io import read_rruff_header
+
+    f = tmp_path / "Calcite__R040070__Raman__532.txt"
+    f.write_text(
+        "##NAMES=Calcite\n##RRUFFID=R040070\n##IDEAL CHEMISTRY=CaCO_3_\n"
+        "##RAMAN WAVELENGTH=532\n##ORIENTATION=Laser parallel to c.\n Fiducial mark is parallel to a\n\n"
+        "   100.0     ,  5.0\n   200.0     ,  7.0\n   300.0, 9.0\n##END=\n"
+    )
+    header = read_rruff_header(f)
+    assert header["NAMES"] == "Calcite"
+    assert header["RAMAN WAVELENGTH"] == "532"
+    assert header["ORIENTATION"] == "Laser parallel to c. Fiducial mark is parallel to a"
+    x, y, _ = read_spectrum(f)
+    assert np.allclose(x, [100, 200, 300]) and np.allclose(y, [5, 7, 9])

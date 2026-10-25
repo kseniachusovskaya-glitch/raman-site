@@ -49,3 +49,13 @@ def test_missing_column_and_duplicate_id_rejected(library_files):
     meta.to_csv(meta_csv, index=False)
     with pytest.raises(ValueError, match="id"):
         build_library(meta_csv, raw, out)
+
+
+def test_several_metadata_tables(library_files):
+    meta_csv, raw, out = library_files
+    meta = pd.read_csv(meta_csv)
+    first, second = meta_csv.parent / "a.csv", meta_csv.parent / "b.csv"
+    meta.iloc[:2].to_csv(first, index=False)
+    meta.iloc[2:].to_csv(second, index=False)
+    assert build_library([first, second], raw, out) == len(meta)
+    assert load_library(out)["spectra"].dtype == np.float32

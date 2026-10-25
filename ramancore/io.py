@@ -75,3 +75,28 @@ def read_spectrum(path, laser_nm=None):
         "history": [f"read_spectrum: {len(x)} точек, {x[0]:.1f}–{x[-1]:.1f} см⁻¹"],
     }
     return x, y, meta
+
+
+def read_rruff_header(path):
+    """Читает заголовок файла RRUFF: строки вида «##КЛЮЧ=значение».
+
+    Значение может продолжаться на следующих строках без «##» (так бывает
+    в поле ORIENTATION) — они дописываются к предыдущему ключу.
+    Заголовок заканчивается на первой строке с числами.
+
+    Возвращает словарь {"NAMES": "Calcite", "RRUFFID": "R040070", ...}.
+    Сами данные спектра читает read_spectrum (строки ## он пропускает).
+    """
+    header, last_key = {}, None
+    for line in Path(path).read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("##"):
+            key, _, value = line[2:].partition("=")  # partition делит строку по первому «=»
+            last_key = key.strip()
+            header[last_key] = value.strip()
+        elif not line.strip():
+            continue  # пустая строка
+        elif _parse_line(line, ",") or _parse_line(line, None):
+            break  # заголовок закончился, дальше идут числа
+        elif last_key:
+            header[last_key] += " " + line.strip()  # продолжение предыдущего значения
+    return header

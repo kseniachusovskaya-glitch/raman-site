@@ -32,6 +32,7 @@ print(meta)
 - [x] `subtract_baseline` (asls по умолчанию, arpls, poly через pybaselines) + тесты, блокнот `05_baseline.ipynb`
 - [x] `normalize`, `resample` и весь конвейер `process` + тесты, блокнот `06_pipeline.ipynb`
 - [x] `library.py` (сборка и загрузка базы, проверка источника и лицензии), `matching.py` (HQI и HQI по производным), `scripts/build_library.py`
+- [x] Импорт RRUFF (`scripts/import_rruff.py`), фильтр поиска по классу, база из 9655 эталонов
 
 ## Пример: анализ пика
 
@@ -43,3 +44,20 @@ x, y, meta = read_spectrum("data/examples/synthetic_si.txt")
 table, fit = fit_peaks(x, y, find_peaks(x, y), shape="lorentz")
 print(table[["center", "center_err", "fwhm", "fwhm_err", "area", "area_err"]])
 ```
+
+## База эталонов
+
+`data/library/` — собранная база: 9655 спектров RRUFF (наборы excellent_unoriented
+и excellent_oriented, 1952 минерала) + собственные эталоны. Поиск по всей базе
+занимает ~20 мс.
+
+Пересборка:
+```bash
+uv run python scripts/import_rruff.py excellent_unoriented.zip excellent_oriented.zip
+uv run python scripts/build_library.py
+```
+
+Спектры RRUFF используются со ссылкой на проект:
+Lafuente B., Downs R. T., Yang H., Stone N. (2015) The power of databases: the RRUFF
+project. In: *Highlights in Mineralogical Crystallography*, T. Armbruster and
+R. M. Danisi, eds. Berlin, Germany, W. De Gruyter, pp. 1–30.

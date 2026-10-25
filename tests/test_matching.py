@@ -47,7 +47,7 @@ def test_result_table(library):
     x, y = make_spectrum(SYNTHETIC["Si"], seed=5)
     result = search(x, y, library, top=3)
     assert len(result) == 3
-    assert list(result.columns) == ["id", "material", "hqi", "hqi_deriv", "source", "license"]
+    assert list(result.columns) == ["id", "material", "laser_nm", "hqi", "hqi_deriv", "source", "license"]
     assert result["hqi"].is_monotonic_decreasing  # по убыванию
     assert result["hqi"].between(0, 100).all() and result["hqi_deriv"].between(0, 100).all()
 
@@ -56,3 +56,15 @@ def test_result_table(library):
 def test_very_noisy_reference_still_first(library, material):
     x, y = make_spectrum(SYNTHETIC[material], noise=20, seed=100)
     assert search(x, y, library).loc[0, "material"] == material
+
+
+def test_class_filter(library):
+    lib = dict(library)
+    meta = lib["metadata"].copy()
+    meta.loc[meta["material"] == "Si", "class"] = "mineral"  # пусть Si будет «минералом»
+    lib["metadata"] = meta
+    x, y = make_spectrum(SYNTHETIC["Si"], seed=5)
+    assert search(x, y, lib).loc[0, "material"] == "Si"
+    only_semi = search(x, y, lib, classes=["semiconductor"])
+    assert "Si" not in set(only_semi["material"])
+    assert list(only_semi.index) == list(range(len(only_semi)))
