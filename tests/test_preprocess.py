@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ramancore.preprocess import crop, remove_spikes, smooth
+from ramancore.preprocess import crop, remove_spikes, smooth, subtract_baseline
 
 
 def lorentz(x, center, fwhm, amplitude):
@@ -121,3 +121,51 @@ def test_smooth_short_spectrum_and_even_window():
     assert len(smooth(np.arange(20.0), window=10)) == 20  # чётное окно → 9
     short = np.array([1.0, 5.0, 1.0])
     assert np.array_equal(smooth(short), short)  # слишком коротко — без изменений
+
+
+# ---------- subtract_baseline ----------
+
+def curved_background_spectrum(step, seed=0):
+    """Пик Si на изогнутом фоне (как люминесценция) + шум σ = 5."""
+    x = np.arange(100, 1000, step)
+    background = 1e-4 * (x - 500) ** 2 + 50
+    y = background + lorentz(x, 520.7, 6, 1000) + np.random.default_rng(seed).normal(0, 5, x.size)
+    return x, y, background
+
+
+@pytest.mark.parametrize("step", [0.5, 6.24])
+@pytest.mark.parametrize("method", ["arpls", "asls", "poly"])
+def test_baseline_follows_curved_background(step, method):
+    x, y, background = curved_background_spectrum(step)
+    # asls жёстче arpls: на коротком спектре (~150 точек) ему нужно меньшее lam
+    lam = 1e3 if (method == "asls" and step > 1) else 1e5
+    corrected, baseline = subtract_baseline(x, y, method=method, lam=lam)
+    far = np.abs(x - 520.7) > 40  # точки вдали от пика
+    # arpls учитывает шум и идёт посередине; asls и poly прижимаются
+    # к нижней границе шума, поэтому у них допуск больше (~4σ)
+    tolerance = 15 if method == "arpls" else 20
+    assert np.max(np.abs(baseline - background)[far]) < tolerance
+
+
+@pytest.mark.parametrize("step", [0.5, 6.24])
+def test_baseline_keeps_peak_height(step):
+    x, y, background = curved_background_spectrum(step)
+    corrected, _ = subtract_baseline(x, y)
+    i = np.argmax(corrected)
+    true_height = lorentz(x[i], 520.7, 6, 1000)
+    assert corrected[i] == pytest.approx(true_height, rel=0.05)
+
+
+def test_baseline_shapes_and_input_not_modified():
+    x, y, _ = curved_background_spectrum(1.0)
+    before = y.copy()
+    corrected, baseline = subtract_baseline(x, y)
+    assert corrected.shape == baseline.shape == y.shape
+    assert np.allclose(corrected + baseline, y)
+    assert np.array_equal(y, before)
+
+
+def test_baseline_unknown_method_raises():
+    x, y, _ = curved_background_spectrum(1.0)
+    with pytest.raises(ValueError):
+        subtract_baseline(x, y, method="magic")

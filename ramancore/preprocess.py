@@ -4,6 +4,7 @@
 """
 
 import numpy as np
+from pybaselines import Baseline
 from scipy.signal import savgol_filter
 
 
@@ -112,3 +113,37 @@ def smooth(y, window=5, polyorder=3):
     if window <= polyorder:
         return y.copy()  # спектр слишком короткий, сглаживать нечем
     return savgol_filter(y, window, polyorder)
+
+
+def subtract_baseline(x, y, method="arpls", lam=1e5, p=0.01, poly_order=3):
+    """Вычитает фон (базовую линию, например люминесценцию) через pybaselines.
+
+    method:
+      "arpls" — асимметрично перевзвешенные наименьшие квадраты
+                (Baek et al., Analyst 2015, 140, 250 — сверить);
+                сам решает, какие точки — фон, а какие — пики;
+      "asls"  — асимметричные наименьшие квадраты (Eilers, Boelens 2005);
+                p — вес точек выше фона (меньше p → фон ниже пиков);
+      "poly"  — модифицированный полином степени poly_order
+                (Lieber, Mahadevan-Jansen 2003); подходит для плавного фона.
+
+    lam — «жёсткость» фона для arpls/asls: больше lam → фон глаже.
+    Важно: подходящее lam зависит от числа точек. 1e5 проверено на
+    спектрах из ~150 точек (шаг ~6 см⁻¹) и ~1800 точек (шаг 0.5 см⁻¹)
+    для arpls; для asls на коротких спектрах лучше lam ≈ 1e3.
+    asls и poly прижимают фон к нижней границе шума (остаётся смещение
+    ~2σ), arpls проходит посередине шума.
+
+    Возвращает (y_corrected, baseline).
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    fitter = Baseline(x_data=x)
+    if method == "arpls":
+        baseline, _ = fitter.arpls(y, lam=lam)
+    elif method == "asls":
+        baseline, _ = fitter.asls(y, lam=lam, p=p)
+    elif method == "poly":
+        baseline, _ = fitter.modpoly(y, poly_order=poly_order)
+    else:
+        raise ValueError('method должен быть "arpls", "asls" или "poly"')
+    return y - baseline, baseline
