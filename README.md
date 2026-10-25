@@ -31,6 +31,7 @@ print(meta)
 - [x] `peaks.py`: `find_peaks` (порог по размаху и по шуму) и `fit_peaks` (Лоренц / Гаусс / псевдо-Фойгт, линейный фон, погрешности 1σ), блокнот `04_peaks.ipynb`
 - [x] `subtract_baseline` (asls по умолчанию, arpls, poly через pybaselines) + тесты, блокнот `05_baseline.ipynb`
 - [x] `normalize`, `resample` и весь конвейер `process` + тесты, блокнот `06_pipeline.ipynb`
+- [x] `library.py` (сборка и загрузка базы, проверка источника и лицензии), `matching.py` (HQI и HQI по производным), `scripts/build_library.py`
 
 ## Пример: анализ пика
 

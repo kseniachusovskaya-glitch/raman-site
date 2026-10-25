@@ -228,6 +228,7 @@ def test_process_full_pipeline():
     assert meta["filename"] == "test.txt"
     _, _, meta2 = process(x, y, smooth_window=5)
     assert any("smooth" in h for h in meta2["history"])
+    assert meta2["history"][-2].startswith("smooth")  # после resample, перед normalize
 
 
 def test_process_same_spectrum_different_steps_match():

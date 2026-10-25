@@ -207,16 +207,16 @@ def resample(x, y, grid=None, step=1.0, fill=0.0):
 def process(x, y, meta=None, xmin=100, xmax=3200, baseline_method="asls", lam=1e5,
             smooth_window=None, norm="vector", step=1.0):
     """Весь конвейер обработки по порядку:
-    crop → remove_spikes → subtract_baseline → smooth → resample → normalize.
+    crop → remove_spikes → subtract_baseline → resample → (smooth) → normalize.
 
     Пользовательский спектр и эталоны базы должны проходить ОДИН И ТОТ ЖЕ
     конвейер с одинаковыми параметрами, иначе сравнение (HQI) нечестное.
     Сетка общая для всех: от xmin до xmax с шагом step.
 
-    smooth_window=None (по умолчанию) — не сглаживать. Окно сглаживания
-    задаётся в точках, поэтому на приборах с разным шагом оно сглаживает
-    по-разному (5 точек — это 2.5 см⁻¹ при шаге 0.5 и 31 см⁻¹ при шаге
-    6.24) и портит сравнение с эталонами.
+    Сглаживание идёт ПОСЛЕ переноса на общую сетку, поэтому smooth_window
+    здесь — в точках общей сетки (при step = 1 это см⁻¹) и одинаково для
+    любых приборов. smooth_window=None (по умолчанию) — не сглаживать.
+
     Для подгонки пиков используйте не этот результат, а исходный спектр
     (см. ramancore/peaks.py).
 
@@ -232,12 +232,12 @@ def process(x, y, meta=None, xmin=100, xmax=3200, baseline_method="asls", lam=1e
     history.append("remove_spikes: threshold=6")
     y, _ = subtract_baseline(x, y, method=baseline_method, lam=lam)
     history.append(f"subtract_baseline: {baseline_method}, lam={lam:g}")
-    if smooth_window:
-        y = smooth(y, window=smooth_window)
-        history.append(f"smooth: Savitzky–Golay, window={smooth_window}, polyorder=3")
     grid = np.arange(xmin, xmax + step / 2, step)
     grid, y = resample(x, y, grid=grid)
     history.append(f"resample: шаг {step} см⁻¹")
+    if smooth_window:
+        y = smooth(y, window=smooth_window)
+        history.append(f"smooth: Savitzky–Golay, window={smooth_window} точек сетки, polyorder=3")
     y = normalize(y, norm)
     history.append(f"normalize: {norm}")
 
