@@ -1,0 +1,24 @@
+[project]
+name = "raman-site"
+version = "0.1.0"
+description = "Открытый инструмент для обработки и идентификации рамановских спектров (упор на полупроводники)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "pybaselines",
+    "plotly",
+    "streamlit",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
