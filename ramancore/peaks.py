@@ -5,6 +5,8 @@
 прямой линией, поэтому заранее вычитать базовую линию не обязательно.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -146,14 +148,18 @@ def fit_peaks(x, y, centers, shape="lorentz", margin=30.0):
         height = max(ys[i] - (a0 + b0 * xs[i]), span * 0.01)
         # Ширина на полувысоте по данным; если не получилось — 3 шага
         try:
-            w = peak_widths(ys, [i], rel_height=0.5)[0][0] * step
+            with warnings.catch_warnings():  # предупреждение не нужно: ниже есть запасной вариант
+                warnings.simplefilter("ignore")
+                w = peak_widths(ys, [i], rel_height=0.5)[0][0] * step
         except ValueError:
             w = 0.0
         if not np.isfinite(w) or w <= 0:
             w = 3 * step
         shift = max(w, 2 * step)  # насколько центр может уйти от начального
         p0 += [c, w, height]
-        lower += [c - shift, step * 0.1, 0.0]
+        # FWHM не меньше полшага: более узкий пик по таким точкам не различить,
+        # а без этой границы подгонка слабого пика «схлопывается» в иглу
+        lower += [c - shift, step * 0.5, 0.0]
         upper += [c + shift, (xs[-1] - xs[0]), np.inf]
         if shape == "voigt":
             p0 += [0.5]
@@ -168,7 +174,12 @@ def fit_peaks(x, y, centers, shape="lorentz", margin=30.0):
     def f(xx, *params):
         return _model(xx, np.array(params), n, shape)
 
-    popt, pcov = curve_fit(f, xs, ys, p0=p0, bounds=(lower, upper), maxfev=20000)
+    try:
+        popt, pcov = curve_fit(f, xs, ys, p0=p0, bounds=(lower, upper), maxfev=5000)
+    except RuntimeError as error:  # try/except — «перехват» ошибки
+        raise ValueError(
+            "Подгонка не сошлась: попробуйте другие центры, margin или форму пика"
+        ) from error
     perr = np.sqrt(np.diag(pcov))
 
     # 4. Таблица результатов
