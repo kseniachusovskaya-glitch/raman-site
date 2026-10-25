@@ -3,7 +3,9 @@
 import numpy as np
 import pytest
 
-from ramancore.preprocess import crop, remove_spikes, smooth, subtract_baseline
+from ramancore.preprocess import (
+    crop, normalize, process, remove_spikes, resample, smooth, subtract_baseline,
+)
 
 
 def lorentz(x, center, fwhm, amplitude):
@@ -169,3 +171,73 @@ def test_baseline_unknown_method_raises():
     x, y, _ = curved_background_spectrum(1.0)
     with pytest.raises(ValueError):
         subtract_baseline(x, y, method="magic")
+
+
+# ---------- normalize ----------
+
+def test_normalize_variants():
+    y = np.array([1.0, 3.0, 4.0, 2.0])
+    assert normalize(y, "max").max() == pytest.approx(1)
+    assert normalize(y, "area").sum() == pytest.approx(1)
+    assert np.linalg.norm(normalize(y)) == pytest.approx(1)  # vector по умолчанию
+
+
+def test_normalize_keeps_shape_and_rejects_bad_input():
+    y = np.array([1.0, 3.0, 4.0, 2.0])
+    assert np.allclose(normalize(5 * y), normalize(y))  # от силы сигнала не зависит
+    with pytest.raises(ValueError):
+        normalize(np.zeros(4))
+    with pytest.raises(ValueError):
+        normalize(y, "magic")
+
+
+# ---------- resample ----------
+
+def test_resample_default_grid_step_1():
+    x = np.arange(100.3, 200, 6.24)
+    grid, yg = resample(x, 2 * x + 1)
+    assert grid[0] == 101 and np.allclose(np.diff(grid), 1.0)
+    assert grid[-1] <= x[-1]
+    assert np.allclose(yg, 2 * grid + 1)  # прямая переносится точно
+
+
+def test_resample_common_grid_fills_outside():
+    x = np.arange(200, 300, 0.5)
+    grid = np.arange(100, 401, 1.0)
+    g, yg = resample(x, np.ones_like(x), grid=grid)
+    assert np.all(yg[(g < 200) | (g > 299.5)] == 0)
+    assert np.all(yg[(g >= 200) & (g <= 299)] == 1)
+
+
+def test_resample_keeps_peak_position():
+    x, y = noisy_si(step=0.5)
+    g, yg = resample(x, y)
+    assert g[np.argmax(yg)] == pytest.approx(520.7, abs=0.5)
+
+
+# ---------- process (весь конвейер) ----------
+
+def test_process_full_pipeline():
+    x, y, _ = curved_background_spectrum(6.24)
+    y[50] += 5000  # космический луч
+    grid, yp, meta = process(x, y, {"filename": "test.txt", "history": ["read"]})
+    assert grid[0] == 100 and grid[-1] == 3200 and len(grid) == 3101  # общая сетка
+    assert np.linalg.norm(yp) == pytest.approx(1)
+    assert grid[np.argmax(yp)] == pytest.approx(520.7, abs=3)  # пик Si на месте
+    assert meta["history"][0] == "read" and len(meta["history"]) == 6  # без smooth
+    assert meta["filename"] == "test.txt"
+    _, _, meta2 = process(x, y, smooth_window=5)
+    assert any("smooth" in h for h in meta2["history"])
+
+
+def test_process_same_spectrum_different_steps_match():
+    # Один и тот же образец, снятый с шагом 0.5 и 6.24 см⁻¹, после конвейера
+    # похож (HQI > 90). Пик шириной 12 см⁻¹ ≈ 2 шага грубого прибора.
+    # Ограничение: если пик уже шага, совпадение заметно хуже (~80).
+    def sample(step, seed):
+        x = np.arange(100, 1000, step)
+        y = 1e-4 * (x - 500) ** 2 + 50 + lorentz(x, 520.7, 12, 1000)
+        return x, y + np.random.default_rng(seed).normal(0, 5, x.size)
+    _, a, _ = process(*sample(0.5, 0))
+    _, b, _ = process(*sample(6.24, 1))
+    assert 100 * np.dot(a, b) ** 2 > 90

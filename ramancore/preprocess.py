@@ -150,3 +150,96 @@ def subtract_baseline(x, y, method="asls", lam=1e5, p=0.01, poly_order=3):
     else:
         raise ValueError('method должен быть "arpls", "asls" или "poly"')
     return y - baseline, baseline
+
+
+def normalize(y, how="vector"):
+    """Нормировка интенсивности, чтобы сравнивать спектры разной силы.
+
+    how:
+      "max"    — максимум становится 1;
+      "area"   — сумма значений становится 1 (на равномерной сетке это
+                 пропорционально площади под спектром);
+      "vector" — длина вектора y становится 1 (sqrt(Σy²) = 1); так удобно
+                 считать HQI: он становится просто квадратом скалярного
+                 произведения двух спектров.
+
+    Возвращает новый массив y.
+    """
+    y = np.asarray(y, dtype=float)
+    if how == "max":
+        norm = np.max(y)
+    elif how == "area":
+        norm = np.sum(y)
+    elif how == "vector":
+        norm = np.linalg.norm(y)  # linalg.norm — длина вектора
+    else:
+        raise ValueError('how должен быть "max", "area" или "vector"')
+    if norm == 0:
+        raise ValueError("Нельзя нормировать: спектр нулевой")
+    return y / norm
+
+
+def resample(x, y, grid=None, step=1.0, fill=0.0):
+    """Переносит спектр на равномерную сетку (по умолчанию шаг 1 см⁻¹).
+
+    Нужно, чтобы спектры с разных приборов можно было сравнивать точка
+    в точку (например, с эталонами из базы).
+
+    grid — готовая сетка x; если None, строится от первого до последнего
+           целого см⁻¹ внутри спектра с шагом step;
+    fill — значение для точек сетки вне измеренного диапазона
+           (0 — «сигнала нет»; имеет смысл после вычитания фона).
+
+    Значения между точками считаются линейной интерполяцией. Если исходный
+    шаг крупнее нового (например, 6.24 → 1 см⁻¹), новых деталей не
+    появляется — точки просто ложатся на прямые между измеренными.
+
+    Возвращает (grid, y_on_grid).
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    if grid is None:
+        # np.ceil / np.floor — округление вверх / вниз
+        grid = np.arange(np.ceil(x[0]), np.floor(x[-1]) + step / 2, step)
+    grid = np.asarray(grid, dtype=float)
+    return grid, np.interp(grid, x, y, left=fill, right=fill)
+
+
+def process(x, y, meta=None, xmin=100, xmax=3200, baseline_method="asls", lam=1e5,
+            smooth_window=None, norm="vector", step=1.0):
+    """Весь конвейер обработки по порядку:
+    crop → remove_spikes → subtract_baseline → smooth → resample → normalize.
+
+    Пользовательский спектр и эталоны базы должны проходить ОДИН И ТОТ ЖЕ
+    конвейер с одинаковыми параметрами, иначе сравнение (HQI) нечестное.
+    Сетка общая для всех: от xmin до xmax с шагом step.
+
+    smooth_window=None (по умолчанию) — не сглаживать. Окно сглаживания
+    задаётся в точках, поэтому на приборах с разным шагом оно сглаживает
+    по-разному (5 точек — это 2.5 см⁻¹ при шаге 0.5 и 31 см⁻¹ при шаге
+    6.24) и портит сравнение с эталонами.
+    Для подгонки пиков используйте не этот результат, а исходный спектр
+    (см. ramancore/peaks.py).
+
+    Возвращает (grid, y_processed, meta); в meta["history"] дописываются
+    все шаги с параметрами.
+    """
+    meta = dict(meta or {})  # копия, чтобы не менять словарь вызывающего
+    history = list(meta.get("history", []))
+
+    x, y = crop(x, y, xmin, xmax)
+    history.append(f"crop: {xmin}–{xmax} см⁻¹")
+    y = remove_spikes(y)
+    history.append("remove_spikes: threshold=6")
+    y, _ = subtract_baseline(x, y, method=baseline_method, lam=lam)
+    history.append(f"subtract_baseline: {baseline_method}, lam={lam:g}")
+    if smooth_window:
+        y = smooth(y, window=smooth_window)
+        history.append(f"smooth: Savitzky–Golay, window={smooth_window}, polyorder=3")
+    grid = np.arange(xmin, xmax + step / 2, step)
+    grid, y = resample(x, y, grid=grid)
+    history.append(f"resample: шаг {step} см⁻¹")
+    y = normalize(y, norm)
+    history.append(f"normalize: {norm}")
+
+    meta["history"] = history
+    return grid, y, meta
