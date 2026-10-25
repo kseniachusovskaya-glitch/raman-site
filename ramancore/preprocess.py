@@ -115,8 +115,11 @@ def smooth(y, window=5, polyorder=3):
     return savgol_filter(y, window, polyorder)
 
 
-def subtract_baseline(x, y, method="arpls", lam=1e5, p=0.01, poly_order=3):
+def subtract_baseline(x, y, method="asls", lam=1e5, p=0.01, poly_order=3):
     """Вычитает фон (базовую линию, например люминесценцию) через pybaselines.
+
+    По умолчанию asls с lam = 1e5 — выбрано на спектре GaAs (~500 точек,
+    шаг 6.24 см⁻¹, диапазон 100–3200 см⁻¹).
 
     method:
       "arpls" — асимметрично перевзвешенные наименьшие квадраты

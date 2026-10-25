@@ -29,7 +29,7 @@ print(meta)
 - [x] Этап 1, шаг 2: `crop` и `remove_spikes` в `preprocess.py` + тесты, блокнот `02_crop_and_spikes.ipynb`
 - [x] Этап 1, шаг 3: `smooth` (Савицкий–Голей, окно 5 по умолчанию) + тесты, блокнот `03_smooth.ipynb`
 - [x] `peaks.py`: `find_peaks` (порог по размаху и по шуму) и `fit_peaks` (Лоренц / Гаусс / псевдо-Фойгт, линейный фон, погрешности 1σ), блокнот `04_peaks.ipynb`
-- [x] `subtract_baseline` (arpls / asls / poly через pybaselines) + тесты, блокнот `05_baseline.ipynb`
+- [x] `subtract_baseline` (asls по умолчанию, arpls, poly через pybaselines) + тесты, блокнот `05_baseline.ipynb`
 
 ## Пример: анализ пика
 
