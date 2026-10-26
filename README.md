@@ -39,7 +39,7 @@ print(meta)
 - [x] Концентрация электронов по моде L+ (`coupled_modes`, `concentration_from_mode`, `lplus_concentration`) для GaAs, InAs, InSb, блокнот `09_carrier_concentration.ipynb`
 - [x] `thermal.py`: температура по сдвигу фонона (модель Балканского, калибровка по своей серии), блокнот `10_temperature.ipynb`
 - [x] Качество кристалла: `phonon_quality` (FWHM, сдвиг LO, доля LO) и `intrinsic_fwhm` (вычет аппаратной ширины), блокнот `11_crystal_quality.ipynb`
-- [x] Напряжения: `si_stress` (De Wolf, −435 МПа/см⁻¹) и `volume_change` для GaAs (параметры Грюнайзена), блокнот `12_stress.ipynb`
+- [x] Напряжения: `si_stress` (De Wolf, −435 МПа/см⁻¹) , `volume_change` и `gaas_biaxial_stress` для GaAs (001) (Cerdeira et al. 1972, ≈ −3.5 см⁻¹/ГПа для LO), блокнот `12_stress.ipynb`
 
 ## Пример: анализ пика
 

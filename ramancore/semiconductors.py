@@ -342,12 +342,21 @@ SI_STRESS_MPA_PER_CM = -435.0
 # сжатие): Wickboldt, Anastassakis, Sauer, Cardona, Phys. Rev. B 35, 1362
 # (1987), по таблице II в Eryigit & Herman, Phys. Rev. B 53, 7775 (1996).
 # γ(LO) = 1.23 совпадает со статьёй Ксении (Квантовая электроника 2026).
-# Для двуосного напряжения в GaAs нужны фононные деформационные
-# потенциалы p, q (Cerdeira et al., Phys. Rev. B 5, 580 (1972)) — пока
-# не сверены, поэтому здесь их нет.
 GRUNEISEN = {
     "GaAs": {"TO": 1.39, "LO": 1.23},
 }
+
+# GaAs, двуосное напряжение в плоскости (001). Cerdeira, Buchenauer,
+# Pollak, Cardona, Phys. Rev. B 5, 580 (1972), doi:10.1103/PhysRevB.5.580:
+#   таблица I — упругие податливости, 10⁻¹² см²/дин:
+#     S11 + 2·S12 = 0.445,  S11 − S12 = 1.54;
+#   таблица II — (p − q)/2ω0² = 0.1 ± 0.1 (измерено на TO).
+# Сумму p + 2q берём из параметра Грюнайзена: γ = −(p + 2q)/6ω0²
+# (там же, определение под таблицей II). Те же p, q применяем и к LO —
+# так делают авторы (расщепление LO–TO от напряжения не зависит).
+GAAS_S11_PLUS_2S12 = 0.445e-2   # 1/ГПа (1 ГПа = 10¹⁰ дин/см²)
+GAAS_S11_MINUS_S12 = 1.54e-2    # 1/ГПа
+GAAS_P_MINUS_Q_HALF = (0.1, 0.1)  # (значение, погрешность), в ω0²
 
 
 def si_stress(omega, omega0, omega_err=0.0):
@@ -381,3 +390,45 @@ def volume_change(omega, omega0, material="GaAs", mode="LO", omega_err=0.0):
     gamma = GRUNEISEN[material][mode]
     shift = np.asarray(omega, dtype=float) - omega0
     return -100 * shift / (gamma * omega0), 100 * np.asarray(omega_err) / (gamma * omega0)
+
+
+def gaas_biaxial_coefficient(omega0, mode="LO"):
+    """Сдвиг фонона GaAs при двуосном напряжении в плоскости (001), см⁻¹/ГПа.
+
+    Напряжение σxx = σyy = σ (плёнка, пластина на подложке), съёмка с
+    поверхности (001). Деформации: εxx = εyy = (S11 + S12)·σ, εzz = 2·S12·σ.
+    LO (и TO, видимая на (001)) — мода с вектором вдоль z, её сдвиг
+    (уравнение (2) у Cerdeira et al. 1972):
+        Δω = ω0/2 · [p'·εzz + q'·(εxx + εyy)],  p' = p/ω0², q' = q/ω0².
+
+    Возвращает (b, b_err): Δω = b·σ. b < 0 — растяжение смягчает фонон.
+    Погрешность — только от (p − q) из таблицы II (~10 %); неточность γ
+    и перенос p, q с TO на LO в неё не входят.
+    """
+    gamma = GRUNEISEN["GaAs"][mode]
+    s11 = (GAAS_S11_PLUS_2S12 + 2 * GAAS_S11_MINUS_S12) / 3
+    s12 = (GAAS_S11_PLUS_2S12 - GAAS_S11_MINUS_S12) / 3
+    exx, ezz = s11 + s12, 2 * s12  # деформации на 1 ГПа
+
+    def b(pq_half):
+        # p + 2q = −6γ, p − q = 2·pq_half  →  решаем систему для p и q
+        q = (-6 * gamma - 2 * pq_half) / 3
+        p = q + 2 * pq_half
+        return omega0 / 2 * (p * ezz + q * 2 * exx)
+
+    value, err = GAAS_P_MINUS_Q_HALF
+    return b(value), abs(b(value + err) - b(value - err)) / 2
+
+
+def gaas_biaxial_stress(omega, omega0, mode="LO", omega_err=0.0):
+    """Двуосное напряжение σ в GaAs (001) по сдвигу LO или TO, ГПа.
+
+    omega0 — фонон ненапряжённого GaAs на том же приборе в тот же день.
+    σ > 0 — растяжение, σ < 0 — сжатие. Возвращает (sigma, sigma_err),
+    где погрешность включает и неточность коэффициента.
+    """
+    b, b_err = gaas_biaxial_coefficient(omega0, mode)
+    shift = np.asarray(omega, dtype=float) - omega0
+    sigma = shift / b
+    err = np.hypot(np.asarray(omega_err) / b, sigma * b_err / b)
+    return sigma, err
