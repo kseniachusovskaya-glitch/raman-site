@@ -7,7 +7,7 @@
 
 import numpy as np
 
-from ramancore.peaks import find_peaks, fit_peaks, noise_level
+from ramancore.peaks import find_peaks, fit_peaks, intrinsic_fwhm, noise_level
 
 # ---------- GaAs: ориентация поверхности по правилам отбора ----------
 
@@ -269,3 +269,60 @@ def lplus_concentration(x, y, material="GaAs", window=None, shape="gauss", **ove
         warnings.append("L+ очень широкая (FWHM > 200 см⁻¹): положение ненадёжно.")
     return {"omega": peak.center, "omega_err": peak.center_err, "n": n, "n_err": n_err,
             "table": table, "fit": fit, "warnings": warnings}
+
+
+# ---------- Качество кристалла по TO и LO ----------
+
+def phonon_quality(x, y, material="GaAs", instrument_fwhm=None, reference_lo=None,
+                   margin=30.0):
+    """Ширины, положения и доля LO для TO и LO решётки цинковой обманки.
+
+    Подгоняет TO и LO вместе (псевдо-Фойгт, линейный фон) и считает:
+      table     — center, fwhm, area с погрешностями (+ intrinsic_fwhm, если
+                  задана instrument_fwhm — аппаратная ширина прибора, см⁻¹);
+      lo_fraction, lo_fraction_err — S(LO) / (S(TO) + S(LO)) по площадям:
+                  для (100) у совершенного кристалла близко к 1, при
+                  разупорядочении падает (запрет на TO снимается);
+      lo_shift  — сдвиг LO относительно reference_lo (LO эталонного
+                  нелегированного образца на том же приборе), если задан.
+    Ориентиры TO/LO берутся из LOPC_PARAMS[material]; пики ищутся в ±15 см⁻¹
+    от них, поэтому сдвиг калибровки прибора на несколько см⁻¹ не мешает.
+
+    Возвращает словарь: table, fit, lo_fraction, lo_fraction_err, lo_shift,
+    warnings.
+    """
+    p = _lopc_params(material, {})
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    near = (x > p["TO"] - 30) & (x < p["LO"] + 30)
+    found = find_peaks(x[near], y[near], min_snr=3) if near.sum() > 3 else np.array([])
+    centers = []
+    for expected in (p["TO"], p["LO"]):
+        close = found[np.abs(found - expected) < 15]
+        centers.append(close[np.argmin(np.abs(close - expected))] if len(close) else expected)
+    if abs(centers[1] - centers[0]) < 10:  # один пик на оба места
+        centers = [p["TO"], p["LO"]]
+    try:
+        table, fit = fit_peaks(x, y, centers, shape="voigt", margin=margin)
+    except ValueError as error:
+        return {"table": None, "fit": None, "lo_fraction": np.nan, "lo_fraction_err": np.nan,
+                "lo_shift": np.nan, "warnings": [str(error)]}
+    table.index = ["TO", "LO"]
+    warnings = []
+    if instrument_fwhm is not None:
+        table["intrinsic_fwhm"] = intrinsic_fwhm(table.fwhm, instrument_fwhm)
+        if (table.fwhm < 1.5 * instrument_fwhm).any():
+            warnings.append("Ширина пика близка к аппаратной: собственная ширина "
+                            "определена грубо (погрешность может быть > 50 %).")
+    to, lo = table.loc["TO"], table.loc["LO"]
+    total = to.area + lo.area
+    frac = lo.area / total
+    # Погрешность доли: d(f)/dS_LO = S_TO/total², d(f)/dS_TO = −S_LO/total²
+    frac_err = np.hypot(to.area * lo.area_err, lo.area * to.area_err) / total**2
+    shift = lo.center - reference_lo if reference_lo is not None else np.nan
+    warnings += [
+        "Доля LO зависит от ориентации: сравнивайте образцы одной ориентации, (100).",
+        "У легированного n-типа в TO входит связанная мода L−, а LO идёт из "
+        "обеднённого слоя: сравнивайте образцы с близкой концентрацией.",
+    ]
+    return {"table": table, "fit": fit, "lo_fraction": frac, "lo_fraction_err": frac_err,
+            "lo_shift": shift, "warnings": warnings}

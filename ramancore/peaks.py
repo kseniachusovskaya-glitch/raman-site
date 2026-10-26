@@ -241,3 +241,25 @@ def curves_on_grid(table, fit, x):
         components.append(_PROFILES[r["shape"]](x, *args))
     total = baseline + sum(components)
     return baseline, components, total
+
+
+def intrinsic_fwhm(fwhm_measured, fwhm_instrument):
+    """Собственная (лоренцева) ширина линии без аппаратного уширения, см⁻¹.
+
+    Измеренный пик — свёртка лоренциана образца (fL) с гауссовой
+    аппаратной функцией (fG). Ширина такого профиля Фойгта:
+        fV ≈ 0.5346·fL + √(0.2166·fL² + fG²)
+    (Olivero & Longbothum, J. Quant. Spectrosc. Radiat. Transfer 17, 233
+    (1977), точность ~0.02 %). Здесь уравнение решается относительно fL.
+
+    Если измеренная ширина не больше аппаратной, возвращает 0: собственную
+    ширину по такому спектру не определить.
+    """
+    fV = np.asarray(fwhm_measured, dtype=float)
+    fG = float(fwhm_instrument)
+    a, b = 0.5346, 0.2166
+    # (fV − a·fL)² = b·fL² + fG²  →  квадратное уравнение относительно fL
+    qa = a**2 - b
+    disc = (a * fV) ** 2 - qa * (fV**2 - fG**2)
+    fL = (a * fV - np.sqrt(np.maximum(disc, 0))) / qa
+    return np.where(fV > fG, fL, 0.0)
