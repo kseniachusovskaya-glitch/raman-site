@@ -34,6 +34,8 @@ print(meta)
 - [x] `library.py` (сборка и загрузка базы, проверка источника и лицензии), `matching.py` (HQI и HQI по производным), `scripts/build_library.py`
 - [x] Импорт RRUFF (`scripts/import_rruff.py`), фильтр поиска по классу, база из 9655 эталонов
 - [x] `semiconductors.py`: `gaas_orientation` — ориентация GaAs по I(TO)/I(LO), блокнот `07_search_and_gaas.ipynb`
+- [x] Свои эталоны (`scripts/import_own.py`, `data/library_own/` — только локально, не в git)
+- [x] `export.py`: `to_csv` (спектр + фон + параметры в шапке) и `table_to_csv` (пики, поиск), блокнот `08_export.ipynb`
 
 ## Пример: анализ пика
 
@@ -44,6 +46,15 @@ from ramancore.peaks import find_peaks, fit_peaks
 x, y, meta = read_spectrum("data/examples/synthetic_si.txt")
 table, fit = fit_peaks(x, y, find_peaks(x, y), shape="lorentz")
 print(table[["center", "center_err", "fwhm", "fwhm_err", "area", "area_err"]])
+```
+
+## Пример: выгрузка в CSV
+
+```python
+from ramancore.export import to_csv, table_to_csv
+
+to_csv("si_spectrum.csv", x, y, meta, params={"baseline_method": "asls"})
+table_to_csv("si_peaks.csv", table, meta)   # читать: pd.read_csv(path, comment="#")
 ```
 
 ## База эталонов
