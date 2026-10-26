@@ -15,7 +15,7 @@ from ramancore.export import table_to_csv, to_csv
 from ramancore.library import load_library
 from ramancore.matching import search
 from ramancore.preprocess import crop, process, remove_spikes, subtract_baseline
-from ui import read_upload
+from ui import color, read_upload
 
 ROOT = Path(__file__).parent.parent.parent  # папка проекта
 
@@ -77,8 +77,9 @@ xc, yc = crop(x, y, xmin, xmax)
 yc = remove_spikes(yc)
 _, baseline = subtract_baseline(xc, yc, method=method, lam=lam)
 fig = go.Figure()
-fig.add_scatter(x=xc, y=yc, name="исходный (без космических лучей)", line=dict(width=1))
-fig.add_scatter(x=xc, y=baseline, name="фон", line=dict(dash="dash"))
+fig.add_scatter(x=xc, y=yc, name="исходный (без космических лучей)",
+                line=dict(width=1, color=color("sample")))
+fig.add_scatter(x=xc, y=baseline, name="фон", line=dict(dash="dash", color=color("fit")))
 fig.update_layout(xaxis_title="Рамановский сдвиг, см⁻¹", yaxis_title="Интенсивность",
                   height=350, margin=dict(t=20))
 st.plotly_chart(fig, use_container_width=True)
@@ -107,8 +108,11 @@ if len(results):
     _, yq, _ = process(x, y, meta, **params)  # тот же вид, что у эталонов
     row = int(np.flatnonzero(library["metadata"]["id"].to_numpy() == pick)[0])
     fig = go.Figure()
-    fig.add_scatter(x=library["grid"], y=yq, name=uploaded.name)
-    fig.add_scatter(x=library["grid"], y=library["spectra"][row], name=pick, opacity=0.7)
+    fig.add_scatter(x=library["grid"], y=yq, name=uploaded.name,
+                    line=dict(color=color("sample")))
+    offset = st.slider("Сдвинуть эталон вверх (чтобы не накладывался)", 0.0, 0.5, 0.0, 0.05)
+    fig.add_scatter(x=library["grid"], y=library["spectra"][row] + offset, name=pick, opacity=0.8,
+                    line=dict(color=color("ref")))
     fig.update_layout(xaxis_title="Рамановский сдвиг, см⁻¹",
                       yaxis_title="Нормированная интенсивность", height=350, margin=dict(t=20))
     st.plotly_chart(fig, use_container_width=True)
