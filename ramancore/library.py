@@ -101,19 +101,26 @@ def load_library(library_dir="data/library", include_own=True):
       spectra_deriv — производные эталонов (длины 1), для hqi_deriv;
       params   — параметры конвейера, которыми обработаны эталоны.
 
-    include_own — если рядом есть папка library_own (свои эталоны, которые
-    не выкладываются в git), они добавляются к основной базе.
+    Если рядом есть папки library_contrib (принятые спектры коллег) и
+    library_own (свои эталоны, не в git; только при include_own=True),
+    их эталоны добавляются к основной базе.
     """
     library_dir = Path(library_dir)
     grid, spectra, metadata, params = _load_one(library_dir)
-    own_dir = library_dir.parent / "library_own"
-    if include_own and (own_dir / "spectra.npz").exists():
-        own_grid, own_spectra, own_meta, own_params = _load_one(own_dir)
-        if not np.array_equal(own_grid, grid) or own_params != params:
-            raise ValueError("library_own собрана с другими параметрами — пересоберите её")
+    # Рядом могут лежать ещё две базы с теми же параметрами обработки:
+    # library_contrib — спектры коллег, принятые в открытую базу (в git);
+    # library_own — свои эталоны, которые в git не выкладываются
+    extra = ["library_contrib"] + (["library_own"] if include_own else [])
+    for name in extra:
+        extra_dir = library_dir.parent / name
+        if not (extra_dir / "spectra.npz").exists():
+            continue
+        e_grid, e_spectra, e_meta, e_params = _load_one(extra_dir)
+        if not np.array_equal(e_grid, grid) or e_params != params:
+            raise ValueError(f"{name} собрана с другими параметрами — пересоберите её")
         # np.vstack ставит матрицы друг под другом; pd.concat — то же для таблиц
-        spectra = np.vstack([spectra, own_spectra])
-        metadata = pd.concat([metadata, own_meta], ignore_index=True)
+        spectra = np.vstack([spectra, e_spectra])
+        metadata = pd.concat([metadata, e_meta], ignore_index=True)
     # Производные считаем один раз при загрузке, а не при каждом поиске
     deriv = np.diff(spectra, axis=1)
     norms = np.linalg.norm(deriv, axis=1, keepdims=True)
