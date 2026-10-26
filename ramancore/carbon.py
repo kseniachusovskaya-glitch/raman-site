@@ -784,3 +784,128 @@ def fit_c60(x, y, monomer=1469.0, window=(1380.0, 1500.0)):
                 "phases": {k: lorentzian(xs, c, w, hh) for k, c, hh in zip(C60_PHASES, centers, amps)}},
         "warnings": warnings,
     }
+
+
+# ---------- Алмаз: напряжения ----------
+
+# Ager & Drory, Phys. Rev. B 48, 2601 (1993), doi:10.1103/PhysRevB.48.2601, ур. 4:
+# двуосное напряжение в ПОЛИКРИСТАЛЛИЧЕСКОЙ алмазной плёнке (усреднение по
+# ориентациям зёрен), ν0 = 1332 см⁻¹. Линия под напряжением расщепляется на
+# синглет (ниже) и дублет (выше):
+#   σ = −1.08 ГПа/см⁻¹ · (νs − ν0)   по синглету,
+#   σ = −0.384 ГПа/см⁻¹ · (νd − ν0)  по дублету.
+# σ < 0 — сжатие. Для отдельных ориентаций в статье свои коэффициенты (ур. 2–3).
+DIAMOND_NU0 = 1332.0
+DIAMOND_STRESS_COEF = {"singlet": -1.08, "doublet": -0.384}
+
+
+def diamond_stress(nu, phonon="singlet", nu0=DIAMOND_NU0):
+    """Двуосное напряжение, ГПа, по положению синглета или дублета."""
+    return DIAMOND_STRESS_COEF[phonon] * (nu - nu0)
+
+
+# ---------- Наноалмаз: размер по модели фононного конфайнмента ----------
+
+# Yoshikawa et al., Appl. Phys. Lett. 67, 694 (1995), doi:10.1063/1.115206:
+#   I(ω) ∝ ∫₀¹ exp(−q²L²/4) · 4πq² dq / ([ω − ω(q)]² + (Γ/2)²),   (1)
+#   ω(q) = A + B·cos(πq), A = 1193.75, B = 139.25 см⁻¹,             (2)
+#   Γ = 2.990 + 0.052/L см⁻¹.                                        (3)
+# q — в единицах 2π/a, L — в единицах a = 3.567 Å. В (3) единицы L не указаны;
+# коэффициенты взяты из их работы по частицам 0.1–2 мкм, и с L в мкм модель
+# воспроизводит результат статьи для 55 Å: сдвиг −10 см⁻¹, ширина 32 см⁻¹
+# (у нас −9.6 и 30.2; проверено в тестах). ω(0) = 1333.0 см⁻¹.
+YOSHIKAWA_A, YOSHIKAWA_B = 1193.75, 139.25
+DIAMOND_LATTICE_NM = 0.3567
+_Q = np.linspace(0, 1, 801)
+
+
+def confinement_spectrum(w, size_nm):
+    """Спектр алмаза из частиц размером size_nm (нм) по Yoshikawa 1995, max = 1."""
+    w = np.asarray(w, dtype=float)
+    L = size_nm / DIAMOND_LATTICE_NM
+    gamma = 2.990 + 0.052 / (size_nm * 1e-3)  # L в мкм
+    wq = YOSHIKAWA_A + YOSHIKAWA_B * np.cos(np.pi * _Q)
+    weight = np.exp(-_Q**2 * L**2 / 4) * 4 * np.pi * _Q**2
+    spec = np.trapezoid(weight[None, :] / ((w[:, None] - wq[None, :]) ** 2 + (gamma / 2) ** 2),
+                        _Q, axis=1)
+    return spec / spec.max()
+
+
+def nanodiamond_size(x, y, bulk=1333.0, window=(1200.0, 1400.0)):
+    """Размер наноалмаза, нм: подгонка линии алмаза формой из модели Yoshikawa.
+
+    bulk — положение линии объёмного алмаза на вашем приборе (поправка
+    калибровки; в модели ω(0) = 1333.0). Свободные параметры: размер,
+    высота, линейный фон. Возвращает словарь: size, size_err, pos, fwhm
+    (по модели), fit, warnings.
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x >= window[0]) & (x <= window[1])
+    xs, ys = x[keep], y[keep]
+    if xs.size < 20:
+        raise ValueError("Слишком мало точек в области 1200–1400 см⁻¹")
+    offset = bulk - 1333.0
+
+    def model(xx, log_size, amp, a, b):
+        return amp * confinement_spectrum(xx - offset, np.exp(log_size)) + a + b * (xx - 1300)
+
+    edge = max(3, xs.size // 20)
+    b0, a0 = np.polyfit(np.r_[xs[:edge], xs[-edge:]] - 1300, np.r_[ys[:edge], ys[-edge:]], 1)
+    h = max((ys - a0 - b0 * (xs - 1300)).max(), 1e-12)
+    popt, pcov = curve_fit(model, xs, ys, p0=[np.log(10.0), h, a0, b0],
+                           bounds=([np.log(1.5), 0, -np.inf, -np.inf],
+                                   [np.log(1000.0), np.inf, np.inf, np.inf]), maxfev=20000)
+    size = float(np.exp(popt[0]))
+    size_err = size * float(np.sqrt(pcov[0, 0]))
+    grid = np.arange(1150, 1400, 0.05)
+    s = confinement_spectrum(grid, size)
+    half = grid[s >= 0.5]
+    warnings = []
+    if size < 3:
+        warnings.append("Размер меньше 3 нм: модель проверена на частицах 4–6 нм и крупнее.")
+    if size > 50:
+        warnings.append("Размер больше ~50 нм: сдвиг линии меньше 0.5 см⁻¹, и размер "
+                        "определяется в основном по ширине — оценка грубая.")
+    warnings.append("Напряжения и дефекты тоже сдвигают и уширяют линию алмаза — тогда "
+                    "размер по этой модели занижен.")
+    return {"size": size, "size_err": size_err, "pos": grid[np.argmax(s)] + offset,
+            "fwhm": half.max() - half.min(),
+            "fit": {"x": xs, "y": ys, "model": model(xs, *popt),
+                    "baseline": popt[2] + popt[3] * (xs - 1300)},
+            "warnings": warnings}
+
+
+def diamond_sp2_ratio(x, y):
+    """Отношение площадей полосы sp² (G, 1500–1650) и линии алмаза (1300–1350).
+
+    Сечение рассеяния алмаза примерно в 60 раз меньше, чем графита
+    (Wada & Solin, Physica B 105, 353 (1981), по Yoshikawa 1995), поэтому
+    грубо: sp²/sp³ ≈ (A_G/A_алмаз)/60. Возвращает (отношение площадей, оценка sp²/sp³).
+    """
+    xd, d = _band_minus_line(x, y, 1290, 1370)
+    xg, g = _band_minus_line(x, y, 1480, 1680)
+    area_d = np.trapezoid(np.clip(d, 0, None), xd)
+    area_g = np.trapezoid(np.clip(g, 0, None), xg)
+    ratio = area_g / area_d if area_d > 0 else np.nan
+    return ratio, ratio / 60
+
+
+def fit_diamond_lines(x, y, window=(1300.0, 1400.0)):
+    """Находит и подгоняет лоренцианами линию алмаза (или синглет и дублет,
+    если она расщеплена напряжением; Ager & Drory 1993).
+
+    Возвращает (table, fit) как fit_peaks; в table добавлен столбец phonon:
+    "line" для одной линии, "singlet"/"doublet" для двух (дублет — выше).
+    """
+    from ramancore.peaks import find_peaks, fit_peaks
+
+    xs, ys = _band_minus_line(x, y, *window)
+    centers = np.asarray(find_peaks(xs, ys, min_snr=8), dtype=float)
+    if not len(centers):
+        raise ValueError("Линия алмаза (1300–1400 см⁻¹) не найдена")
+    # Берём две самые высокие: третья и далее — обычно шум или примеси
+    centers = centers[np.argsort(np.interp(centers, xs, ys))[::-1][:2]]
+    table, fit = fit_peaks(x, y, centers, shape="lorentz", margin=25)
+    table = table.sort_values("center").reset_index(drop=True)
+    table["phonon"] = ["line"] if len(table) == 1 else ["singlet", "doublet"]
+    return table, fit

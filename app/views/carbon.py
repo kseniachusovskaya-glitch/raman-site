@@ -5,9 +5,9 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ramancore.carbon import (
-    C60_PHASE_NAMES, GRAPHENE_REF_514, backes_flakes, fit_c60, cnt_d_to_g, find_rbm, fit_cnt_g, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
+    C60_PHASE_NAMES, DIAMOND_NU0, GRAPHENE_REF_514, backes_flakes, fit_c60, cnt_d_to_g, find_rbm, fit_cnt_g, backes_m1, backes_m2, crystallite_size_la, diamond_sp2_ratio, diamond_stress, fit_diamond_lines, fit_dlc, fit_graphene,
     fit_soot, g_dispersion, graphene_defects, graphene_layers, graphene_strain_doping,
-    hydrogen_content,
+    hydrogen_content, nanodiamond_size,
 )
 from ui import fit_figure
 from ui import X_TITLE, color, show_warnings, solvent_block, upload
@@ -20,7 +20,7 @@ KINDS = {
     "graphene": "Графен: чешуйки на подложке и дисперсии",
     "cnt": "Углеродные нанотрубки",
     "c60": "Фуллерен C60",
-    "diamond": "Алмаз и наноалмаз — скоро",
+    "diamond": "Алмаз и наноалмаз",
 }
 kind = st.selectbox("Какой углерод исследуете?", list(KINDS), format_func=KINDS.get)
 
@@ -367,6 +367,93 @@ elif kind == "c60":
                       margin=dict(t=10))
     st.plotly_chart(fig, use_container_width=True)
     show_warnings(r["warnings"])
+
+elif kind == "diamond":
+    form = st.radio("Образец", ["film", "nano"], horizontal=True,
+                    format_func={"film": "алмазная плёнка или кристалл (напряжения)",
+                                 "nano": "наноалмаз (размер частиц)"}.get)
+    data = upload("Спектр алмаза", key="dia")
+    if data is None:
+        st.info("Загрузите спектр. Для плёнки — напряжение по сдвигу линии 1332 см⁻¹, для "
+                "наноалмаза — размер частиц по форме линии; для обоих — примесь sp².")
+        st.stop()
+    x, y, _ = data
+    x, y = solvent_block(x, y, key="dia")
+
+    if form == "film":
+        st.write("Двуосное напряжение в поликристаллической плёнке по Ager & Drory "
+                 "(PRB 48, 2601, 1993). Под напряжением линия расщепляется на синглет "
+                 "(ниже) и дублет (выше).")
+        nu0 = st.number_input("Линия ненапряжённого алмаза на вашем приборе, см⁻¹",
+                              value=DIAMOND_NU0, step=0.1,
+                              help="1332 — значение статьи; лучше снять объёмный алмаз тем же прибором")
+        try:
+            table, fit = fit_diamond_lines(x, y)
+        except (ValueError, RuntimeError) as error:
+            st.error(str(error))
+            st.stop()
+        if len(table) == 1:
+            phonon = st.radio("Одна линия — считать её", ["singlet", "doublet"], horizontal=True,
+                              format_func={"singlet": "синглетом", "doublet": "дублетом"}.get,
+                              help="Если расщепление не разрешено, в спектре сумма обеих; "
+                                   "синглет и дублет дают разные коэффициенты")
+            table.loc[0, "phonon"] = phonon
+        cols = st.columns(len(table) + 1)
+        for col, (_, row) in zip(cols, table.iterrows()):
+            sigma = diamond_stress(row.center, row.phonon, nu0)
+            col.metric(f"{'синглет' if row.phonon == 'singlet' else 'дублет'}: "
+                       f"{row.center:.1f} см⁻¹", f"{sigma:+.2f} ГПа",
+                       help=f"FWHM {row.fwhm:.1f} см⁻¹; σ < 0 — сжатие")
+        cols[-1].metric("FWHM, см⁻¹", f"{table.fwhm.min():.1f}",
+                        help="Узкая линия — хорошее качество кристалла")
+        st.plotly_chart(fit_figure(x, y, table, fit, title="Линия алмаза"), use_container_width=True)
+        if len(table) == 1:
+            show_warnings(["Одна линия: если она уширена, расщепление может быть не разрешено — "
+                           "тогда напряжение оценено грубо."])
+    else:
+        st.write("Размер частиц по модели фононного конфайнмента Yoshikawa et al. (APL 67, 694, "
+                 "1995): у мелких частиц линия алмаза сдвигается вниз, уширяется и становится "
+                 "несимметричной.")
+        bulk = st.number_input("Линия объёмного алмаза на вашем приборе, см⁻¹", value=1333.0,
+                               step=0.1, help="В модели 1333.0; впишите своё значение, "
+                                              "чтобы учесть сдвиг калибровки")
+        try:
+            r = nanodiamond_size(x, y, bulk)
+        except (ValueError, RuntimeError) as error:
+            st.error(f"Подгонка не удалась: {error}")
+            st.stop()
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Размер, нм", f"{r['size']:.1f}",
+                  help=f"Погрешность подгонки ±{r['size_err']:.2f} нм; реальная больше — "
+                       "она определяется точностью самой модели")
+        m2.metric("Положение, см⁻¹", f"{r['pos']:.1f}", help="По модели")
+        m3.metric("FWHM, см⁻¹", f"{r['fwhm']:.0f}", help="По модели")
+        f = r["fit"]
+        fig = go.Figure()
+        fig.add_scatter(x=f["x"], y=f["y"], name="спектр", line=dict(width=1, color=color("sample")))
+        fig.add_scatter(x=f["x"], y=f["baseline"], name="фон", line=dict(dash="dash", color="#7f7f7f"))
+        fig.add_scatter(x=f["x"], y=f["model"], name="модель", line=dict(width=2, color=color("fit")))
+        fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность", height=340,
+                          margin=dict(t=10))
+        st.plotly_chart(fig, use_container_width=True)
+        show_warnings(r["warnings"])
+
+    st.subheader("Примесь sp²")
+    try:
+        ratio, sp2 = diamond_sp2_ratio(x, y)
+        s1, s2 = st.columns(2)
+        s1.metric("A(G)/A(алмаз)", f"{ratio:.2f}", help="Отношение площадей полосы 1480–1680 "
+                                                        "и линии алмаза")
+        s2.metric("sp²/sp³ ≈", f"{sp2:.3f}",
+                  help="С поправкой на сечение: алмаз рассеивает ~в 60 раз слабее графита "
+                       "(Wada & Solin 1981, по Yoshikawa 1995)")
+        show_warnings(["Оценка sp²/sp³ грубая: сечение sp² зависит от его упорядоченности и "
+                       "от лазера (коэффициент 60 — для 514 нм).",
+                       "У наноалмаза полоса 1600–1650 бывает от поверхностных групп (C=O, OH), "
+                       "а пики 1140 и 1490 — от трансполиацетилена на границах зёрен: это не "
+                       "графит."])
+    except ValueError as error:
+        st.info(f"sp² не оценить: {error}")
 
 else:
     st.info("Этот расчёт в работе.")
