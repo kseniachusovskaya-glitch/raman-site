@@ -12,7 +12,7 @@ from ramancore.semiconductors import (
     LOPC_PARAMS, damage_signs, gaas_biaxial_stress, gaas_orientation,
     lplus_concentration, phonon_quality, si_stress,
 )
-from ui import fit_figure, show_warnings, upload
+from ui import fit_figure, show_warnings, solvent_block, upload
 
 st.set_page_config(page_title="Raman: полупроводники", layout="wide")
 st.title("Расчёты для полупроводников")
@@ -24,6 +24,7 @@ if data is None:
     st.info("Загрузите спектр — расчёты появятся во вкладках ниже.")
     st.stop()
 x, y, meta = data
+x, y = solvent_block(x, y, key="semi")
 material = st.selectbox("Материал", ["GaAs", "InAs", "InSb", "Si"])
 
 tabs = st.tabs(["Ориентация", "Концентрация (L+)", "Качество кристалла",

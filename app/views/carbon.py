@@ -5,13 +5,21 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ramancore.carbon import fit_dlc, g_dispersion, hydrogen_content
-from ui import X_TITLE, color, show_warnings, upload
+from ui import X_TITLE, color, show_warnings, solvent_block, upload
 
 st.set_page_config(page_title="Raman: углерод", layout="wide")
 st.title("Углеродные материалы")
-tabs = st.tabs(["DLC и аморфный углерод", "Графен (скоро)"])
+KINDS = {
+    "dlc": "DLC и аморфный углерод (плёнки a-C, a-C:H, ta-C)",
+    "powder": "Порошки: сажа, технический и активированный уголь, графит — скоро",
+    "graphene": "Графен, в том числе дисперсии — скоро",
+    "cnt": "Углеродные нанотрубки — скоро",
+    "c60": "Фуллерен C60 — скоро",
+    "diamond": "Алмаз и наноалмаз — скоро",
+}
+kind = st.selectbox("Какой углерод исследуете?", list(KINDS), format_func=KINDS.get)
 
-with tabs[0]:
+if kind == "dlc":
     st.write("Подгонка D (лоренциан) + G (профиль Брейта–Вигнера–Фано) с линейным фоном "
              "по Ferrari & Robertson (2000). Загружайте **исходный** спектр, без вычитания "
              "фона: наклон фона нужен для оценки водорода.")
@@ -28,6 +36,7 @@ with tabs[0]:
         st.stop()
 
     x, y, _ = data
+    x, y = solvent_block(x, y, key="dlc")
     try:
         r = fit_dlc(x, y)
     except (ValueError, RuntimeError) as error:  # RuntimeError — подгонка не сошлась
@@ -76,5 +85,7 @@ with tabs[0]:
             "зависит от длины волны.")
     show_warnings(r["warnings"] + h_warn)
 
-with tabs[1]:
-    st.write("Число слоёв, дефекты, деформация и легирование — следующим шагом.")
+else:
+    st.info("Этот расчёт в работе. План: порошки — разложение на 5 полос (Sadezky 2005) и "
+            "размер кристаллитов La (Cançado 2006); графен — число слоёв, дефекты, деформация "
+            "и легирование, размер и толщина чешуек в дисперсии (Backes 2016).")

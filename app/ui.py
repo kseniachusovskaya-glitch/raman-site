@@ -9,6 +9,7 @@ import streamlit as st
 
 from ramancore.io import read_spectrum
 from ramancore.peaks import curves_on_grid
+from ramancore.preprocess import subtract_reference
 
 X_TITLE = "Рамановский сдвиг, см⁻¹"
 
@@ -69,3 +70,33 @@ def fit_figure(x, y, table, fit, xlim=None, title=None):
 def show_warnings(warnings):
     for w in warnings:
         st.caption("• " + w)
+
+
+def solvent_block(x, y, key):
+    """Блок «Вычесть растворитель / подложку». Возвращает (x, y) — исправленные или прежние."""
+    with st.expander("Вычесть спектр растворителя или подложки"):
+        ref = upload("Спектр чистого растворителя (подложки, кюветы)", key=f"{key}_solvent")
+        if ref is None:
+            return x, y
+        auto = st.checkbox("Подобрать масштаб по самому сильному пику растворителя",
+                           value=True, key=f"{key}_auto")
+        window = None
+        if not auto:
+            c1, c2 = st.columns(2)
+            lo = c1.number_input("Окно подбора от, см⁻¹", value=float(x.min()), key=f"{key}_lo")
+            hi = c2.number_input("до, см⁻¹", value=float(x.max()), key=f"{key}_hi")
+            window = (lo, hi)
+        try:
+            x_new, y_new, scale = subtract_reference(x, y, ref[0], ref[1], window=window)
+        except ValueError as error:
+            st.error(str(error))
+            return x, y
+        st.write(f"Масштаб растворителя: {scale:.3f}")
+        fig = go.Figure()
+        fig.add_scatter(x=x, y=y, name="до", line=dict(width=1, color="#7f7f7f"))
+        fig.add_scatter(x=x_new, y=y_new, name="после вычитания",
+                        line=dict(width=1, color=color("sample")))
+        fig.update_layout(xaxis_title=X_TITLE, height=300, margin=dict(t=10))
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("В окне подбора не должно быть пиков самого образца, иначе масштаб завышен.")
+        return x_new, y_new

@@ -222,6 +222,40 @@ def average_spectra(spectra):
     return x0, ys.mean(axis=0)  # axis=0 — среднее по спектрам для каждой точки
 
 
+def subtract_reference(x, y, x_ref, y_ref, window=None, scale=None):
+    """Вычитает спектр растворителя (подложки, кюветы) из спектра образца.
+
+    Спектр-эталон переносится на ось x образца (np.interp). Масштаб s
+    подбирается в окне window = (от, до) около сильного пика растворителя
+    методом наименьших квадратов:
+        y ≈ s · y_ref + a + b·x   (a + b·x — разница фонов),
+    так что после вычитания этот пик исчезает. Если window не задано,
+    берётся ±15 см⁻¹ вокруг самого сильного пика эталона. scale —
+    задать масштаб вручную (тогда окно не нужно).
+
+    Возвращает (x, y_corrected, s): только общая часть диапазонов двух
+    спектров, чтобы на краях не было скачка. Важно: в окне не должно
+    быть пиков самого образца, иначе масштаб будет завышен.
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    x_ref, y_ref = np.asarray(x_ref, dtype=float), np.asarray(y_ref, dtype=float)
+    order = np.argsort(x_ref)  # np.interp требует возрастающую ось
+    r = np.interp(x, x_ref[order], y_ref[order], left=np.nan, right=np.nan)
+    if scale is None:
+        if window is None:
+            # «пик» — максимум над медианой, чтобы не взять край с высоким фоном
+            peak = x_ref[np.argmax(y_ref - np.median(y_ref))]
+            window = (peak - 15, peak + 15)
+        sel = (x >= window[0]) & (x <= window[1]) & ~np.isnan(r)
+        if sel.sum() < 5:
+            raise ValueError("В окне подбора масштаба слишком мало общих точек")
+        # Матрица для МНК: столбцы — эталон, единицы, x
+        design = np.column_stack([r[sel], np.ones(sel.sum()), x[sel]])
+        scale = np.linalg.lstsq(design, y[sel], rcond=None)[0][0]
+    both = ~np.isnan(r)  # точки, где есть оба спектра
+    return x[both], y[both] - scale * r[both], float(scale)
+
+
 def process(x, y, meta=None, xmin=100, xmax=3200, baseline_method="asls", lam=1e5,
             smooth_window=None, norm="vector", step=1.0):
     """Весь конвейер обработки по порядку:

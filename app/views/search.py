@@ -15,7 +15,7 @@ from ramancore.export import table_to_csv, to_csv
 from ramancore.library import load_library
 from ramancore.matching import search
 from ramancore.preprocess import crop, process, remove_spikes, subtract_baseline
-from ui import color, read_upload
+from ui import color, read_upload, solvent_block
 
 ROOT = Path(__file__).parent.parent.parent  # папка проекта
 
@@ -70,6 +70,7 @@ except ValueError as error:
     st.error(f"Не удалось прочитать файл: {error}")
     st.stop()
 meta["laser_nm"] = laser
+x, y = solvent_block(x, y, key="search")
 
 # ---------- 1. исходный спектр и фон ----------
 st.subheader("1. Исходный спектр и фон")

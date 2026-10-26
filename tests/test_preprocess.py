@@ -264,3 +264,25 @@ def test_process_same_spectrum_different_steps_match():
     _, a, _ = process(*sample(0.5, 0))
     _, b, _ = process(*sample(6.24, 1))
     assert 100 * np.dot(a, b) ** 2 > 90
+
+
+def test_subtract_reference_removes_solvent():
+    from ramancore.preprocess import subtract_reference
+    from conftest import make_spectrum
+    # Растворитель: сильный пик 1002 (как у толуола) и слабый 785; образец — пик 1580
+    xs, solvent = make_spectrum([(1002, 4, 1000), (785, 5, 300)], step=0.8, noise=0, xmax=2000)
+    x, sample = make_spectrum([(1580, 20, 200)], step=1.21, noise=2, xmax=2000)
+    sample = sample + 0.7 * np.interp(x, xs, solvent)
+    x, y, s = subtract_reference(x, sample, xs, solvent)
+    assert s == pytest.approx(0.7, rel=0.03)
+    near = (x > 990) & (x < 1015)
+    assert np.ptp(y[near]) < 40  # пик растворителя почти исчез (было ~700)
+    assert y[np.argmin(abs(x - 1580))] > 150  # пик образца остался
+    assert x.max() <= xs.max()  # только общая часть диапазонов
+
+
+def test_subtract_reference_manual_scale():
+    from ramancore.preprocess import subtract_reference
+    x = np.arange(100, 200, 1.0)
+    _, y, s = subtract_reference(x, 3 * x, x, x, scale=2.0)
+    assert s == 2.0 and np.allclose(y, x)
