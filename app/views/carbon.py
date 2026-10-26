@@ -4,7 +4,11 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
-from ramancore.carbon import fit_dlc, g_dispersion, hydrogen_content
+from ramancore.carbon import (
+    GRAPHENE_REF_514, fit_dlc, fit_graphene, g_dispersion, graphene_strain_doping,
+    hydrogen_content,
+)
+from ui import fit_figure
 from ui import X_TITLE, color, show_warnings, solvent_block, upload
 
 st.set_page_config(page_title="Raman: углерод", layout="wide")
@@ -12,7 +16,7 @@ st.title("Углеродные материалы")
 KINDS = {
     "dlc": "DLC и аморфный углерод (плёнки a-C, a-C:H, ta-C)",
     "powder": "Порошки: сажа, технический и активированный уголь, графит — скоро",
-    "graphene": "Графен, в том числе дисперсии — скоро",
+    "graphene": "Графен: деформация и легирование (число слоёв и дефекты — скоро)",
     "cnt": "Углеродные нанотрубки — скоро",
     "c60": "Фуллерен C60 — скоро",
     "diamond": "Алмаз и наноалмаз — скоро",
@@ -84,6 +88,51 @@ if kind == "dlc":
             "- Сравнивайте спектры, снятые на одном лазере: положение G в аморфном углероде "
             "зависит от длины волны.")
     show_warnings(r["warnings"] + h_warn)
+
+elif kind == "graphene":
+    st.write("Подгонка G, 2D и D лоренцианами. Деформация и легирование — по положениям "
+             "G и 2D (Lee et al., Nat. Commun. 3, 1024, 2012).")
+    data = upload("Спектр графена", key="gr")
+    if data is None:
+        st.info("Загрузите спектр — появятся положения G и 2D, I(2D)/I(G), I(D)/I(G), "
+                "деформация и легирование.")
+        st.stop()
+    x, y, _ = data
+    x, y = solvent_block(x, y, key="gr")
+    try:
+        r = fit_graphene(x, y)
+    except (ValueError, RuntimeError) as error:
+        st.error(f"Подгонка не удалась: {error}")
+        st.stop()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Pos(G), см⁻¹", f"{r['pos_g']:.1f}", help=f"FWHM {r['fwhm_g']:.1f} см⁻¹")
+    m2.metric("Pos(2D), см⁻¹", f"{r.get('pos_2d', float('nan')):.1f}",
+              help=f"FWHM {r.get('fwhm_2d', float('nan')):.1f} см⁻¹")
+    m3.metric("I(2D)/I(G)", f"{r['i2d_ig']:.2f}", help="По высотам")
+    m4.metric("I(D)/I(G)", f"{r['id_ig']:.2f}", help="0 — полоса D не найдена")
+    for name, label in [("g", "G"), ("2d", "2D"), ("d", "D")]:
+        if name in r["tables"]:
+            fig = fit_figure(x, y, r["tables"][name], r["fits"][name], title=label)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Деформация и легирование")
+    if "pos_2d" not in r:
+        st.warning("Нужна полоса 2D.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        g0 = c1.number_input("ωG0 эталона, см⁻¹", value=GRAPHENE_REF_514[0], step=0.1)
+        d0 = c2.number_input("ω2D0 эталона, см⁻¹", value=GRAPHENE_REF_514[1], step=0.1,
+                             help="По умолчанию — Lee et al. для 514.5 нм")
+        kind_strain = c3.selectbox("Деформация", ["biaxial", "uniaxial"],
+                                   format_func={"biaxial": "двуосная",
+                                                "uniaxial": "одноосная"}.get)
+        sd = graphene_strain_doping(r["pos_g"], r["pos_2d"], (g0, d0), kind_strain)
+        s1, s2 = st.columns(2)
+        s1.metric("Деформация, %", f"{sd['strain_percent']:+.3f}", help="> 0 — растяжение")
+        s2.metric("Сдвиг G от легирования, см⁻¹", f"{sd['dg_doping']:+.1f}")
+        show_warnings(sd["warnings"])
+    st.caption("Число слоёв по форме 2D и плотность дефектов по I(D)/I(G) появятся после "
+               "сверки с Ferrari et al. 2006 и Cançado et al. 2011.")
 
 else:
     st.info("Этот расчёт в работе. План: порошки — разложение на 5 полос (Sadezky 2005) и "

@@ -138,3 +138,83 @@ def g_dispersion(pos_g_1, laser_1, pos_g_2, laser_2):
     if laser_1 == laser_2:
         raise ValueError("Нужны спектры на двух разных лазерах")
     return abs((pos_g_2 - pos_g_1) / (laser_2 - laser_1))
+
+
+# ---------- Графен: деформация и легирование по G и 2D ----------
+
+# Lee, Ahn, Shim, Lee, Ryu, Nat. Commun. 3, 1024 (2012), doi:10.1038/ncomms2022
+# (открытый доступ). Все числа — для возбуждения 514.5 нм:
+#   (ωG0, ω2D0) = (1581.6, 2676.9) см⁻¹ — свободный графен без деформации и легирования;
+#   Δω2D/ΔωG = 2.2 ± 0.2 — линия деформации (среднее по 8 образцам);
+#   Δω2D/ΔωG = 0.70 ± 0.05 — линия дырочного легирования;
+#   ΔωG = −69.1 ± 3.4 см⁻¹/% при двуосной деформации, −23.5 см⁻¹/% при одноосной.
+GRAPHENE_REF_514 = (1581.6, 2676.9)
+GRAPHENE_SLOPE_STRAIN = 2.2
+GRAPHENE_SLOPE_DOPING = 0.70
+GRAPHENE_G_PER_STRAIN = {"biaxial": -69.1, "uniaxial": -23.5}
+
+
+def fit_graphene(x, y):
+    """Подгоняет G (~1580) и 2D (~2700) лоренцианами, D (~1350) — если есть.
+
+    Возвращает словарь: pos_g, fwhm_g, pos_2d, fwhm_2d, i2d_ig (по высотам),
+    id_ig (по высотам; 0, если D не видна), tables — таблицы fit_peaks,
+    fits — данные для графиков.
+    """
+    from ramancore.peaks import find_peaks, fit_peaks  # локально: нет цикла импортов
+
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    result, tables, fits = {}, {}, {}
+    for name, guess, half in [("g", 1585, 60), ("2d", 2690, 120), ("d", 1350, 60)]:
+        near = (x > guess - half) & (x < guess + half)
+        if near.sum() < 8:
+            continue
+        found = find_peaks(x[near], y[near], min_snr=5)
+        if not len(found):
+            continue
+        center = found[np.argmin(np.abs(found - guess))]
+        table, fit = fit_peaks(x, y, [center], shape="lorentz", margin=half)
+        # Пик должен быть внутри окна и уверенно выше шума: иначе это хвост
+        # соседней полосы (например, D на склоне G)
+        if (abs(table.center[0] - guess) > half - 10
+                or table.amplitude[0] < 3 * table.amplitude_err[0]):
+            continue
+        tables[name], fits[name] = table, fit
+        result[f"pos_{name}"] = table.center[0]
+        result[f"pos_{name}_err"] = table.center_err[0]
+        result[f"fwhm_{name}"] = table.fwhm[0]
+        result[f"height_{name}"] = table.amplitude[0]
+    if "pos_g" not in result:
+        raise ValueError("Полоса G (~1580 см⁻¹) не найдена")
+    result["i2d_ig"] = result["height_2d"] / result["height_g"] if "height_2d" in result else np.nan
+    result["id_ig"] = result.get("height_d", 0.0) / result["height_g"]
+    result["tables"], result["fits"] = tables, fits
+    return result
+
+
+def graphene_strain_doping(pos_g, pos_2d, reference=GRAPHENE_REF_514, strain="biaxial"):
+    """Разделяет сдвиг (G, 2D) на вклад деформации и легирования (Lee et al. 2012).
+
+    Сдвиг точки от эталона раскладывается по двум направлениям:
+        (ΔωG, Δω2D) = a·(1, 2.2) + b·(1, 0.70),
+    a — сдвиг G от деформации, b — от дырочного легирования.
+    Деформация, % = a / (−69.1) для двуосной или a / (−23.5) для одноосной.
+
+    reference — (ωG0, ω2D0) недеформированного нелегированного графена.
+    По умолчанию — значения Lee et al. для 514.5 нм; 2D сильно зависит от
+    длины волны лазера, поэтому для 532 нм и других лучше свой эталон.
+
+    Возвращает словарь: dg_strain, dg_doping (см⁻¹), strain_percent, warnings.
+    """
+    dg, d2d = pos_g - reference[0], pos_2d - reference[1]
+    # Решаем систему 2×2: [[1, 1], [s_T, s_H]] · [a, b] = [ΔωG, Δω2D]
+    a, b = np.linalg.solve([[1, 1], [GRAPHENE_SLOPE_STRAIN, GRAPHENE_SLOPE_DOPING]], [dg, d2d])
+    warnings = ["Модель для дырочного (p) легирования; электронное легирование "
+                "смещает 2D по-другому.",
+                "Эталон (ωG0, ω2D0) по умолчанию — для 514.5 нм: при другом лазере 2D "
+                "смещается, задайте свой эталон."]
+    if b < 0:
+        warnings.append("Вклад легирования получился отрицательным: точка вне области "
+                        "модели (n-легирование или неверный эталон).")
+    return {"dg_strain": a, "dg_doping": b,
+            "strain_percent": a / GRAPHENE_G_PER_STRAIN[strain], "warnings": warnings}

@@ -59,3 +59,28 @@ def test_g_dispersion():
     assert g_dispersion(1560, 532, 1545, 785) == pytest.approx(15 / 253)
     with pytest.raises(ValueError):
         g_dispersion(1560, 532, 1550, 532)
+
+
+def test_graphene_fit_monolayer_like():
+    from ramancore.carbon import fit_graphene
+    x = np.arange(1100, 3000, 1.0)
+    y = (100 + lorentzian(x, 1582, 15, 300) + lorentzian(x, 2680, 30, 1200)
+         + np.random.default_rng(0).normal(0, 3, x.size))
+    r = fit_graphene(x, y)
+    assert r["pos_g"] == pytest.approx(1582, abs=0.3)
+    assert r["fwhm_2d"] == pytest.approx(30, abs=1.5)
+    assert r["i2d_ig"] == pytest.approx(4, rel=0.05)
+    assert r["id_ig"] == 0  # хвост G не принят за D
+    r = fit_graphene(x, y + lorentzian(x, 1350, 20, 90))
+    assert r["id_ig"] == pytest.approx(0.3, abs=0.02)
+
+
+def test_strain_doping_decomposition():
+    from ramancore.carbon import GRAPHENE_REF_514, graphene_strain_doping
+    g0, d0 = GRAPHENE_REF_514
+    # Двуосное растяжение 0.1 % (G −6.91) плюс легирование (G +4)
+    a, b = -6.91, 4.0
+    r = graphene_strain_doping(g0 + a + b, d0 + 2.2 * a + 0.70 * b)
+    assert r["dg_strain"] == pytest.approx(a)
+    assert r["dg_doping"] == pytest.approx(b)
+    assert r["strain_percent"] == pytest.approx(0.1)
