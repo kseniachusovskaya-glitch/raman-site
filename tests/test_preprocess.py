@@ -4,7 +4,8 @@ import numpy as np
 import pytest
 
 from ramancore.preprocess import (
-    crop, normalize, process, remove_spikes, resample, smooth, subtract_baseline,
+    average_spectra, crop, normalize, process, remove_spikes, resample, smooth,
+    subtract_baseline,
 )
 
 
@@ -213,6 +214,27 @@ def test_resample_keeps_peak_position():
     x, y = noisy_si(step=0.5)
     g, yg = resample(x, y)
     assert g[np.argmax(yg)] == pytest.approx(520.7, abs=0.5)
+
+
+# ---------- average_spectra ----------
+
+def test_average_reduces_noise_and_keeps_peak():
+    repeats = [noisy_si(seed=s) for s in range(9)]
+    x, y = average_spectra(repeats)
+    clean = lorentz(x, 520.7, 4, 1000) + 50
+    # 9 повторов → шум меньше примерно в 3 раза (σ = 5 → ~1.7)
+    assert np.std(y - clean) < 2.5
+    assert x[np.argmax(y)] == pytest.approx(520.7, abs=0.5)
+
+
+def test_average_different_x_and_empty():
+    x1 = np.arange(0, 10, 1.0)
+    x2 = x1 + 0.5  # второй прибор сдвинул ось на полшага
+    x, y = average_spectra([(x1, 2 * x1), (x2, 2 * x2)])
+    assert np.allclose(x, x1)
+    assert np.allclose(y[1:], 2 * x1[1:])  # прямая сохраняется (кроме края)
+    with pytest.raises(ValueError):
+        average_spectra([])
 
 
 # ---------- process (весь конвейер) ----------

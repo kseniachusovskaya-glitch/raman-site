@@ -5,3 +5,8 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 data/raw/rruff/
+# Свои спектры и их описание — только локально (не публикуем)
+data/raw/own/
+data/raw/metadata_own.csv
+data/library_own/
+data/examples/*/

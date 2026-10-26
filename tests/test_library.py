@@ -59,3 +59,18 @@ def test_several_metadata_tables(library_files):
     meta.iloc[2:].to_csv(second, index=False)
     assert build_library([first, second], raw, out) == len(meta)
     assert load_library(out)["spectra"].dtype == np.float32
+
+
+def test_own_library_is_added(library_files):
+    # Свои эталоны лежат в соседней папке library_own и подхватываются сами
+    meta_csv, raw, out = library_files
+    build_library(meta_csv, raw, out)
+    own = pd.read_csv(meta_csv).head(2)
+    own["id"] = ["own_1", "own_2"]
+    own_csv = out.parent / "metadata_own.csv"
+    own.to_csv(own_csv, index=False)
+    build_library(own_csv, raw, out.parent / "library_own")
+    lib = load_library(out)
+    assert list(lib["metadata"]["id"][-2:]) == ["own_1", "own_2"]
+    assert lib["spectra"].shape[0] == len(lib["metadata"])
+    assert len(load_library(out, include_own=False)["metadata"]) == len(lib["metadata"]) - 2

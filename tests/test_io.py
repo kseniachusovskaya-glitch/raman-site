@@ -38,6 +38,15 @@ def test_semicolon_and_spaces(tmp_path):
         assert np.allclose(y, [1, 2])
 
 
+def test_decimal_comma(tmp_path):
+    # Формат русского Excel: «;» между столбцами, запятая в дробях
+    f = tmp_path / "ru.csv"
+    f.write_text("520,7;100\n521,9;-5\n")
+    x, y, _ = read_spectrum(f)
+    assert np.allclose(x, [520.7, 521.9])
+    assert np.allclose(y, [100, -5])
+
+
 def test_sorts_descending_x(tmp_path):
     f = tmp_path / "rev.txt"
     f.write_text("300\t9\n200\t7\n100\t5\n")

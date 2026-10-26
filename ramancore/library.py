@@ -84,28 +84,44 @@ def build_library(metadata_csv, raw_dir, out_dir, params=None):
     return len(meta)
 
 
-def load_library(library_dir="data/library"):
+def _load_one(library_dir):
+    """Читает одну собранную базу (spectra.npz + metadata.csv)."""
+    data = np.load(library_dir / "spectra.npz")
+    metadata = pd.read_csv(library_dir / "metadata.csv")
+    if list(data["ids"]) != list(metadata["id"].astype(str)):
+        raise ValueError("spectra.npz и metadata.csv не совпадают — пересоберите базу")
+    return data["grid"], data["spectra"], metadata, json.loads(str(data["params"]))
+
+
+def load_library(library_dir="data/library", include_own=True):
     """Загружает базу. Возвращает словарь:
       grid     — общая сетка x;
       spectra  — матрица (эталоны × точки сетки);
       metadata — pandas.DataFrame с описанием эталонов;
       spectra_deriv — производные эталонов (длины 1), для hqi_deriv;
       params   — параметры конвейера, которыми обработаны эталоны.
+
+    include_own — если рядом есть папка library_own (свои эталоны, которые
+    не выкладываются в git), они добавляются к основной базе.
     """
     library_dir = Path(library_dir)
-    data = np.load(library_dir / "spectra.npz")
-    metadata = pd.read_csv(library_dir / "metadata.csv")
-    if list(data["ids"]) != list(metadata["id"].astype(str)):
-        raise ValueError("spectra.npz и metadata.csv не совпадают — пересоберите базу")
-    spectra = data["spectra"]
+    grid, spectra, metadata, params = _load_one(library_dir)
+    own_dir = library_dir.parent / "library_own"
+    if include_own and (own_dir / "spectra.npz").exists():
+        own_grid, own_spectra, own_meta, own_params = _load_one(own_dir)
+        if not np.array_equal(own_grid, grid) or own_params != params:
+            raise ValueError("library_own собрана с другими параметрами — пересоберите её")
+        # np.vstack ставит матрицы друг под другом; pd.concat — то же для таблиц
+        spectra = np.vstack([spectra, own_spectra])
+        metadata = pd.concat([metadata, own_meta], ignore_index=True)
     # Производные считаем один раз при загрузке, а не при каждом поиске
     deriv = np.diff(spectra, axis=1)
     norms = np.linalg.norm(deriv, axis=1, keepdims=True)
     deriv = deriv / np.where(norms == 0, 1, norms)
     return {
-        "grid": data["grid"],
+        "grid": grid,
         "spectra": spectra,
         "spectra_deriv": deriv,
         "metadata": metadata,
-        "params": json.loads(str(data["params"])),
+        "params": params,
     }

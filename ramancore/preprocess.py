@@ -204,6 +204,24 @@ def resample(x, y, grid=None, step=1.0, fill=0.0):
     return grid, np.interp(grid, x, y, left=fill, right=fill)
 
 
+def average_spectra(spectra):
+    """Усредняет несколько спектров одного образца (повторные измерения).
+
+    spectra — список пар (x, y). Все спектры переносятся на ось x первого
+    (np.interp), затем y усредняется по точкам. Шум падает примерно в
+    √N раз, а форма пиков сохраняется, если повторы сняты в одних условиях.
+
+    Возвращает (x, y_mean).
+    """
+    if len(spectra) == 0:
+        raise ValueError("Нет спектров для усреднения")
+    x0 = np.asarray(spectra[0][0], dtype=float)
+    # np.stack складывает массивы одинаковой длины в таблицу «спектр × точка»
+    ys = np.stack([np.interp(x0, np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+                   for x, y in spectra])
+    return x0, ys.mean(axis=0)  # axis=0 — среднее по спектрам для каждой точки
+
+
 def process(x, y, meta=None, xmin=100, xmax=3200, baseline_method="asls", lam=1e5,
             smooth_window=None, norm="vector", step=1.0):
     """Весь конвейер обработки по порядку:
