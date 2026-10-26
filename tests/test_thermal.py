@@ -60,3 +60,20 @@ def test_full_chain_on_synthetic_spectra(step):
     table, _ = fit_peaks(x, y, [balkanski(320, W0, A)], shape="lorentz")
     T, T_err, _ = temperature_from_shift(table.center[0], cal, table.center_err[0])
     assert T == pytest.approx(320, abs=max(15, 3 * T_err))
+
+
+def test_article_parameters_give_published_slope():
+    # Максимов и др., Квантовая электроника 56(4), 247 (2026): ω0 = 302.0,
+    # A = −0.93, B = −0.11. Без члена теплового расширения наклон 273–373 K
+    # около −0.018 см⁻¹/К (в статье с расширением −0.022)
+    slope = (balkanski(373, 302.0, -0.93, -0.11) - balkanski(273, 302.0, -0.93, -0.11)) / 100
+    assert slope == pytest.approx(-0.018, abs=0.001)
+
+
+def test_four_phonon_fit_recovers_parameters():
+    T = np.linspace(80, 700, 15)  # для члена B нужен широкий диапазон
+    cal = fit_temperature_shift(T, balkanski(T, 302.0, -0.93, -0.11), four_phonon=True)
+    assert cal["A"] == pytest.approx(-0.93, abs=1e-3)
+    assert cal["B"] == pytest.approx(-0.11, abs=1e-3)
+    T_back, _, _ = temperature_from_shift(balkanski(500, 302.0, -0.93, -0.11), cal)
+    assert T_back == pytest.approx(500, abs=0.1)

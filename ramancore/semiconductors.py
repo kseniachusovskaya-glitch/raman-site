@@ -177,8 +177,9 @@ def coupled_modes(n, material="GaAs", **overrides):
     """Частоты связанных мод L− и L+ при концентрации электронов n (см⁻³).
 
     2ω±² = (ωLO² + ωp²) ± √((ωLO² + ωp²)² − 4·ωp²·ωTO²)
-    (без затухания; см., например, Yu & Cardona, Fundamentals of
-    Semiconductors, Springer 2010).
+    (без затухания; Yu & Cardona, Fundamentals of Semiconductors, Springer
+    2010; та же формула с элементарным зарядом e в ωp — Максимов и др.,
+    Квантовая электроника 56(4), 247 (2026)).
     overrides — свои значения TO, LO, eps_inf, m_eff.
 
     Возвращает (L_minus, L_plus, omega_p) в см⁻¹.
