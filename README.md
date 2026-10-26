@@ -41,7 +41,6 @@ print(meta)
 - [x] `normalize`, `resample` и весь конвейер `process` + тесты, блокнот `06_pipeline.ipynb`
 - [x] `library.py` (сборка и загрузка базы, проверка источника и лицензии), `matching.py` (HQI и HQI по производным), `scripts/build_library.py`
 - [x] Импорт RRUFF (`scripts/import_rruff.py`), фильтр поиска по классу, база из 9655 эталонов
-- [x] Этап 2, шаг 1: сайт `app/streamlit_app.py` — загрузка, обработка, поиск, CSV
 - [x] `semiconductors.py`: `gaas_orientation` — ориентация GaAs по I(TO)/I(LO), блокнот `07_search_and_gaas.ipynb`
 - [x] Свои эталоны (`scripts/import_own.py`, `data/library_own/` — только локально, не в git)
 - [x] `export.py`: `to_csv` (спектр + фон + параметры в шапке) и `table_to_csv` (пики, поиск), блокнот `08_export.ipynb`
@@ -50,6 +49,7 @@ print(meta)
 - [x] Качество кристалла: `phonon_quality` (FWHM, сдвиг LO, доля LO) и `intrinsic_fwhm` (вычет аппаратной ширины), блокнот `11_crystal_quality.ipynb`
 - [x] Напряжения: `si_stress` (De Wolf, −435 МПа/см⁻¹), `volume_change` и `gaas_biaxial_stress` для GaAs (001) (Cerdeira et al. 1972, ≈ −3.5 см⁻¹/ГПа для LO), блокнот `12_stress.ipynb`
 - [x] Признаки лазерного повреждения: `damage_signs` (c-As, Sb, Te и их оксиды для GaAs, InAs, InSb)
+- [x] Этап 2, шаг 1: сайт `app/streamlit_app.py` — загрузка, обработка, поиск, CSV
 
 ## Пример: анализ пика
 
