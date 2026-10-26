@@ -37,6 +37,7 @@ print(meta)
 - [x] Свои эталоны (`scripts/import_own.py`, `data/library_own/` — только локально, не в git)
 - [x] `export.py`: `to_csv` (спектр + фон + параметры в шапке) и `table_to_csv` (пики, поиск), блокнот `08_export.ipynb`
 - [x] Концентрация электронов по моде L+ (`coupled_modes`, `concentration_from_mode`, `lplus_concentration`) для GaAs, InAs, InSb, блокнот `09_carrier_concentration.ipynb`
+- [x] `thermal.py`: температура по сдвигу фонона (модель Балканского, калибровка по своей серии), блокнот `10_temperature.ipynb`
 
 ## Пример: анализ пика
 
