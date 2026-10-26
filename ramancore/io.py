@@ -23,7 +23,7 @@ def _parse_line(line, delimiter):
     parts = line.split(delimiter)  # split(None) режет по любым пробелам
     parts = [p.strip() for p in parts if p.strip() != ""]
     if delimiter != ",":
-        # Русский Excel пишет десятичную запятую: «520,7;100» → -472.40 и 25
+        # Русский Excel пишет десятичную запятую: «520,7;100» → 520.7 и 100
         parts = [p.replace(",", ".") for p in parts]
     if len(parts) < 2:
         return None
