@@ -115,3 +115,155 @@ def gaas_orientation(x, y, shape="lorentz", margin=40.0,
     )
     return {"ratio": ratio, "ratio_err": ratio_err, "orientation": orientation,
             "table": table, "fit": fit, "warnings": warnings}
+
+
+# ---------- Концентрация электронов по связанной плазмон-фононной моде ----------
+
+# Физические постоянные (CODATA 2018, точные или рекомендованные значения)
+_E = 1.602176634e-19       # заряд электрона, Кл
+_EPS0 = 8.8541878128e-12   # электрическая постоянная, Ф/м
+_ME = 9.1093837015e-31     # масса электрона, кг
+_C_CM = 2.99792458e10      # скорость света, см/с (перевод рад/с → см⁻¹)
+
+# Параметры материалов для модели LO-фонон–плазмон.
+#   TO, LO — частоты фононов нелегированного материала, см⁻¹;
+#   eps_inf — оптическая (высокочастотная) диэлектрическая проницаемость;
+#   m_eff — эффективная масса электрона на дне зоны Γ, в массах m0.
+# Лучше всего передавать TO и LO, измеренные на своём нелегированном
+# образце на том же приборе (так сделано в статьях Ксении): тогда
+# сдвиг калибровки прибора не влияет на результат.
+LOPC_PARAMS = {
+    "GaAs": {
+        # TO 33.2 мэВ и LO 36.1 мэВ (300 K) — ioffe.ru, NSM Archive, GaAs/optic;
+        # ε∞ = n² = 3.299² по ИК-показателю преломления (там же, Blakemore 1982)
+        "TO": 267.8, "LO": 291.2, "eps_inf": 10.88,
+        # m* — Vurgaftman, Meyer, Ram-Mohan, J. Appl. Phys. 89, 5815 (2001)
+        "m_eff": 0.067,
+    },
+    "InAs": {
+        # TO, LO, ε∞ — СВЕРИТЬ по первоисточнику (пока справочные значения)
+        "TO": 218.0, "LO": 243.0, "eps_inf": 12.25,
+        "m_eff": 0.026,  # Vurgaftman et al. 2001
+    },
+    "InSb": {
+        # TO, LO, ε∞ — СВЕРИТЬ по первоисточнику (пока справочные значения)
+        "TO": 180.0, "LO": 191.0, "eps_inf": 15.68,
+        "m_eff": 0.0135,  # Vurgaftman et al. 2001
+    },
+}
+
+
+def _lopc_params(material, overrides):
+    """Параметры материала с заменой тех, что передал пользователь."""
+    if material not in LOPC_PARAMS:
+        raise ValueError(f"Нет параметров для {material}; есть: {list(LOPC_PARAMS)}")
+    params = dict(LOPC_PARAMS[material])
+    params.update({k: v for k, v in overrides.items() if v is not None})
+    return params
+
+
+def plasma_frequency(n, eps_inf, m_eff):
+    """Плазменная частота электронов, см⁻¹.
+
+    ωp² = n·e² / (ε0·ε∞·m*),  n — концентрация в см⁻³.
+    Модель параболической зоны: m* не зависит от n.
+    """
+    n_m3 = np.asarray(n, dtype=float) * 1e6  # см⁻³ → м⁻³
+    omega = np.sqrt(n_m3 * _E**2 / (_EPS0 * eps_inf * m_eff * _ME))  # рад/с
+    return omega / (2 * np.pi * _C_CM)
+
+
+def coupled_modes(n, material="GaAs", **overrides):
+    """Частоты связанных мод L− и L+ при концентрации электронов n (см⁻³).
+
+    2ω±² = (ωLO² + ωp²) ± √((ωLO² + ωp²)² − 4·ωp²·ωTO²)
+    (без затухания; см., например, Yu & Cardona, Fundamentals of
+    Semiconductors, Springer 2010).
+    overrides — свои значения TO, LO, eps_inf, m_eff.
+
+    Возвращает (L_minus, L_plus, omega_p) в см⁻¹.
+    """
+    p = _lopc_params(material, overrides)
+    wp = plasma_frequency(n, p["eps_inf"], p["m_eff"])
+    s = p["LO"]**2 + wp**2
+    d = np.sqrt(s**2 - 4 * wp**2 * p["TO"]**2)
+    return np.sqrt((s - d) / 2), np.sqrt((s + d) / 2), wp
+
+
+def concentration_from_mode(omega, material="GaAs", omega_err=0.0, **overrides):
+    """Обратная задача: концентрация электронов по частоте L+ или L− (см⁻¹).
+
+    Из формулы мод: ωp² = ω²(ω² − ωLO²) / (ω² − ωTO²), затем
+    n = ωp²·ε0·ε∞·m* / e². Подходит L+ (ω > LO) и L− (ω < TO);
+    между TO и LO решения нет.
+
+    Возвращает (n, n_err) в см⁻³; n_err — из погрешности частоты omega_err.
+    """
+    p = _lopc_params(material, overrides)
+
+    def n_of(w):
+        if p["TO"] <= w <= p["LO"]:
+            raise ValueError(f"{w:.1f} см⁻¹ между TO и LO — это не связанная мода")
+        wp2 = w**2 * (w**2 - p["LO"]**2) / (w**2 - p["TO"]**2)  # в (см⁻¹)²
+        wp_rad = np.sqrt(wp2) * 2 * np.pi * _C_CM
+        return wp_rad**2 * _EPS0 * p["eps_inf"] * p["m_eff"] * _ME / _E**2 / 1e6
+
+    n = n_of(omega)
+    # Погрешность — численной производной dn/dω
+    h = 0.01
+    n_err = abs(n_of(omega + h) - n_of(omega - h)) / (2 * h) * omega_err
+    return n, n_err
+
+
+def lplus_concentration(x, y, material="GaAs", window=None, shape="gauss", **overrides):
+    """Находит широкую моду L+ в спектре n-типа и оценивает концентрацию электронов.
+
+    window — диапазон поиска L+, см⁻¹; по умолчанию от LO + 20 до 1000.
+    L+ обычно широкая (десятки см⁻¹) и слабая, поэтому подгоняется
+    одним гауссианом с линейным фоном по слегка сглаженному спектру.
+
+    Возвращает словарь: omega, omega_err, n, n_err, table, fit, warnings.
+    """
+    p = _lopc_params(material, overrides)
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    lo, hi = window or (p["LO"] + 20, 1000.0)
+    inside = (x >= lo) & (x <= hi)
+    empty = {"omega": np.nan, "omega_err": np.nan, "n": np.nan, "n_err": np.nan,
+             "table": None, "fit": None}
+    if inside.sum() < 10:
+        return {**empty, "warnings": ["В спектре нет диапазона, где искать L+."]}
+
+    # Начальная точка — максимум сглаженного спектра (скользящее среднее
+    # по ~15 см⁻¹: L+ широкая, а шум узкий)
+    step = np.median(np.diff(x))
+    k = max(3, int(round(15 / step)))
+    ys = np.convolve(y, np.ones(k) / k, mode="same")  # convolve — скользящее среднее
+    xi, yi = x[inside][k:-k], ys[inside][k:-k]
+    start = xi[np.argmax(yi)]
+    try:
+        table, fit = fit_peaks(x, ys, [start], shape=shape, margin=150)
+    except ValueError as error:
+        return {**empty, "warnings": [str(error)]}
+    peak = table.iloc[0]
+    sigma = noise_level(y[inside])
+    warnings = []
+    # Пик засчитывается, если он выше шума сглаженного спектра (σ/√k)
+    # и его высота определена надёжно (больше 5 своих погрешностей)
+    weak = peak.amplitude < 3 * sigma / np.sqrt(k) or peak.amplitude < 5 * peak.amplitude_err
+    if weak or not (lo <= peak.center <= hi):
+        return {**empty, "table": table, "fit": fit,
+                "warnings": ["Широкой моды L+ не видно над шумом: концентрация "
+                             "мала, образец p-типа или L+ слишком затухает."]}
+
+    n, n_err = concentration_from_mode(peak.center, material, peak.center_err, **overrides)
+    warnings += [
+        "Модель параболической зоны: m* не зависит от n. При n > ~1e18 см⁻³ "
+        "непараболичность увеличивает m*, и настоящая n будет выше.",
+        "Погрешность учитывает только положение пика; ширина L+ и выбор "
+        "TO/LO/ε∞/m* дают ещё десятки процентов.",
+        "Для p-типа метод не работает: дырочные плазмоны сильно затухают.",
+    ]
+    if peak.fwhm > 200:
+        warnings.append("L+ очень широкая (FWHM > 200 см⁻¹): положение ненадёжно.")
+    return {"omega": peak.center, "omega_err": peak.center_err, "n": n, "n_err": n_err,
+            "table": table, "fit": fit, "warnings": warnings}

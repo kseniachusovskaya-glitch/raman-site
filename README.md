@@ -36,6 +36,7 @@ print(meta)
 - [x] `semiconductors.py`: `gaas_orientation` — ориентация GaAs по I(TO)/I(LO), блокнот `07_search_and_gaas.ipynb`
 - [x] Свои эталоны (`scripts/import_own.py`, `data/library_own/` — только локально, не в git)
 - [x] `export.py`: `to_csv` (спектр + фон + параметры в шапке) и `table_to_csv` (пики, поиск), блокнот `08_export.ipynb`
+- [x] Концентрация электронов по моде L+ (`coupled_modes`, `concentration_from_mode`, `lplus_concentration`) для GaAs, InAs, InSb, блокнот `09_carrier_concentration.ipynb`
 
 ## Пример: анализ пика
 

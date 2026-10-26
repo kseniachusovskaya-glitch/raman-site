@@ -3,7 +3,10 @@
 import numpy as np
 import pytest
 
-from ramancore.semiconductors import gaas_orientation
+from ramancore.semiconductors import (
+    LOPC_PARAMS, concentration_from_mode, coupled_modes, gaas_orientation,
+    lplus_concentration, plasma_frequency,
+)
 
 from conftest import make_spectrum
 
@@ -68,3 +71,57 @@ def test_not_gaas():
     r = gaas_orientation(x, y)
     assert r["orientation"] == "не определена"
     assert "не GaAs" in r["warnings"][0]
+
+
+# ---------- концентрация по связанной моде L+ ----------
+
+def test_plasma_frequency_scales_as_sqrt_n():
+    p = LOPC_PARAMS["GaAs"]
+    w1 = plasma_frequency(1e17, p["eps_inf"], p["m_eff"])
+    w4 = plasma_frequency(4e17, p["eps_inf"], p["m_eff"])
+    assert w4 == pytest.approx(2 * w1)
+
+
+def test_coupled_modes_limits():
+    p = LOPC_PARAMS["GaAs"]
+    lm, lp, _ = coupled_modes(1e12)            # почти нет электронов
+    assert lm == pytest.approx(0, abs=1) and lp == pytest.approx(p["LO"], abs=0.1)
+    lm, lp, wp = coupled_modes(1e20)           # очень много электронов
+    assert lm == pytest.approx(p["TO"], abs=0.5) and lp == pytest.approx(wp, rel=0.01)
+
+
+@pytest.mark.parametrize("material", ["GaAs", "InAs", "InSb"])
+@pytest.mark.parametrize("n", [3e17, 1.5e18])
+def test_inverse_gives_back_concentration(material, n):
+    lm, lp, _ = coupled_modes(n, material)
+    assert concentration_from_mode(lp, material)[0] == pytest.approx(n, rel=1e-6)
+    assert concentration_from_mode(lm, material)[0] == pytest.approx(n, rel=1e-6)
+
+
+def test_frequency_between_to_and_lo_rejected():
+    with pytest.raises(ValueError):
+        concentration_from_mode(280.0, "GaAs")
+
+
+def test_overrides_use_measured_phonons():
+    # Свои TO/LO, измеренные на нелегированном образце, меняют ответ
+    _, lp, _ = coupled_modes(1e18, TO=270.0, LO=294.0)
+    assert concentration_from_mode(lp, TO=270.0, LO=294.0)[0] == pytest.approx(1e18, rel=1e-6)
+
+
+@pytest.mark.parametrize("step", [1.21, 6.24])
+def test_lplus_found_in_synthetic_n_gaas(step):
+    n = 1.5e18
+    lm, lp, _ = coupled_modes(n)
+    # TO + L− рядом с TO, слабая LO из обеднённого слоя и широкая слабая L+
+    x, y = make_spectrum([(lm, 6, 800), (291.2, 5, 300)], step=step, noise=5, xmax=1000)
+    y = y + 60 * np.exp(-4 * np.log(2) * ((x - lp) / 100) ** 2)
+    r = lplus_concentration(x, y)
+    assert r["omega"] == pytest.approx(lp, abs=5)
+    assert r["n"] == pytest.approx(n, rel=0.05)
+
+
+def test_no_lplus_in_undoped():
+    x, y = make_spectrum([(291.2, 5, 1000)], noise=5, xmax=1000)
+    r = lplus_concentration(x, y)
+    assert np.isnan(r["n"]) and "не видно" in r["warnings"][0]
