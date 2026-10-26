@@ -5,7 +5,15 @@
 Здесь только интерфейс: вся наука — в ramancore.
 """
 
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+# Ядро ramancore берём прямо из папки проекта, а не из установленной копии:
+# Streamlit Cloud не переустанавливает пакет при обновлении кода, и без
+# этой строки сайт видел бы старую версию ramancore
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 pages = st.navigation([
     st.Page("views/search.py", title="Обработка и поиск", default=True),

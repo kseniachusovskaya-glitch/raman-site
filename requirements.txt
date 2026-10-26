@@ -1,2 +1,8 @@
-# Для Streamlit Community Cloud: зависимости и сам пакет ramancore (точка = этот проект)
-.
+# Для Streamlit Community Cloud. Сам ramancore не устанавливается:
+# app/streamlit_app.py берёт его из папки проекта.
+numpy
+pandas
+scipy
+pybaselines
+plotly
+streamlit
