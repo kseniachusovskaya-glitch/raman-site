@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ramancore.carbon import (
-    GRAPHENE_REF_514, backes_flakes, cnt_d_to_g, find_rbm, fit_cnt_g, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
+    C60_PHASE_NAMES, GRAPHENE_REF_514, backes_flakes, fit_c60, cnt_d_to_g, find_rbm, fit_cnt_g, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
     fit_soot, g_dispersion, graphene_defects, graphene_layers, graphene_strain_doping,
     hydrogen_content,
 )
@@ -19,7 +19,7 @@ KINDS = {
     "powder": "Порошки: сажа, технический и активированный уголь, нанографит",
     "graphene": "Графен: чешуйки на подложке и дисперсии",
     "cnt": "Углеродные нанотрубки",
-    "c60": "Фуллерен C60 — скоро",
+    "c60": "Фуллерен C60",
     "diamond": "Алмаз и наноалмаз — скоро",
 }
 kind = st.selectbox("Какой углерод исследуете?", list(KINDS), format_func=KINDS.get)
@@ -328,6 +328,45 @@ elif kind == "cnt":
                   help="По максимумам; меньше — меньше дефектов и аморфного углерода")
     except ValueError as error:
         st.error(str(error))
+
+elif kind == "c60":
+    st.write("Полимеризация C60 по моде Ag(2) (~1469 см⁻¹): у димера и полимеров она "
+             "смягчается. Спектр в области 1380–1500 см⁻¹ раскладывается на полосы фаз с "
+             "положениями из литературы.")
+    data = upload("Спектр C60", key="c60")
+    monomer = st.number_input("Ag(2) мономера на вашем приборе, см⁻¹", value=1469.0, step=0.1,
+                              help="Снимите свежий C60 малой мощностью и впишите положение — "
+                                   "так учитывается сдвиг калибровки")
+    if data is None:
+        st.info("Загрузите спектр — появятся доли сигнала мономера, димера и полимеров.")
+        st.stop()
+    x, y, _ = data
+    x, y = solvent_block(x, y, key="c60")
+    try:
+        r = fit_c60(x, y, monomer)
+    except (ValueError, RuntimeError) as error:
+        st.error(f"Подгонка не удалась: {error}")
+        st.stop()
+    cols = st.columns(len(r["shares"]))
+    for col, (k, v) in zip(cols, r["shares"].items()):
+        col.metric(C60_PHASE_NAMES[k], f"{100 * v:.0f} %")
+    st.caption(f"Максимум Ag(2): {r['peak']:.1f} см⁻¹; общая ширина полос {r['fwhm']:.1f} см⁻¹. "
+               "Доли — сигнала, а не массы: сечения рассеяния фаз разные. Положения фаз: "
+               "Meletov et al., ФТТ 44, 601 (2002); Liu et al., AIRAPT-20 (2005).")
+    f = r["fit"]
+    fig = go.Figure()
+    fig.add_scatter(x=f["x"], y=f["y"], name="спектр", line=dict(width=1, color=color("sample")))
+    palette = {"monomer": "#2ca02c", "dimer": "#9467bd", "orthorhombic": "#8c564b",
+               "tetragonal": "#e377c2", "rhombohedral": "#17becf"}
+    for k, curve in f["phases"].items():
+        if r["shares"][k] > 0.01:
+            fig.add_scatter(x=f["x"], y=f["baseline"] + curve, name=C60_PHASE_NAMES[k],
+                            line=dict(dash="dot", color=palette[k]))
+    fig.add_scatter(x=f["x"], y=f["model"], name="сумма", line=dict(width=2, color=color("fit")))
+    fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность", height=340,
+                      margin=dict(t=10))
+    st.plotly_chart(fig, use_container_width=True)
+    show_warnings(r["warnings"])
 
 else:
     st.info("Этот расчёт в работе.")

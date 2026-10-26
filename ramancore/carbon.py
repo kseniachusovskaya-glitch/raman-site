@@ -713,3 +713,74 @@ def cnt_d_to_g(x, y):
     _, d = _band_minus_line(x, y, 1250, 1450)
     _, g = _band_minus_line(x, y, 1500, 1680)
     return max(d.max(), 0.0) / g.max()
+
+
+# ---------- Фуллерен C60: полимеризация по моде Ag(2) ----------
+
+# Мода Ag(2) («пентагональное сжатие») смягчается, когда молекулы C60 связываются
+# ковалентно. Положения для фаз, см⁻¹:
+#   мономер 1469, димер 1465, тетрагональный 2D-полимер 1450, ромбоэдрический
+#   2D-полимер 1408 — Meletov et al., ФТТ 44(4), 601 (2002);
+#   орторомбический 1D-полимер 1458 — Liu et al., «High-pressure induced
+#   polymerization of C60 nanorods», AIRAPT-20/EHPRG-43, Karlsruhe (2005);
+#   мономер 1469.0 и сдвиг ~4 см⁻¹ при димеризации — Li et al., Crystals 10, 182 (2020).
+# Лазер сам полимеризует C60: Liu et al. снимали при 514 нм, < 0.26 мВт и < 10 с.
+C60_PHASES = {"monomer": 1469.0, "dimer": 1465.0, "orthorhombic": 1458.0,
+              "tetragonal": 1450.0, "rhombohedral": 1408.0}
+C60_PHASE_NAMES = {"monomer": "мономер", "dimer": "димер", "orthorhombic": "1D-полимер (O)",
+                   "tetragonal": "2D-полимер (T)", "rhombohedral": "2D-полимер (R)"}
+
+
+def fit_c60(x, y, monomer=1469.0, window=(1380.0, 1500.0)):
+    """Раскладывает Ag(2) на вклады фаз C60.
+
+    Положения фаз фиксированы (C60_PHASES), но сдвинуты вместе так, чтобы
+    мономер стоял в monomer — так учитывается сдвиг калибровки прибора
+    (снимите свежий C60 и впишите его Ag(2)). Ширина у всех полос общая,
+    высоты свободные (≥ 0), фон линейный.
+
+    Возвращает словарь: shares — доли сигнала каждой фазы (по площади),
+    fwhm, peak (положение максимума спектра в окне), fit, warnings.
+    Доли — это доли СИГНАЛА: сечения рассеяния фаз разные, поэтому это не
+    массовые доли.
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x >= window[0]) & (x <= window[1])
+    xs, ys = x[keep], y[keep]
+    if xs.size < 20:
+        raise ValueError("Слишком мало точек в области 1380–1500 см⁻¹")
+    offset = monomer - C60_PHASES["monomer"]
+    centers = np.array(list(C60_PHASES.values())) + offset
+    n = len(centers)
+
+    def model(xx, w, *p):
+        amps, a, b = p[:n], p[n], p[n + 1]
+        return sum(lorentzian(xx, c, w, h) for c, h in zip(centers, amps)) + a + b * (xx - 1450)
+
+    edge = max(3, xs.size // 20)
+    b0, a0 = np.polyfit(np.r_[xs[:edge], xs[-edge:]] - 1450, np.r_[ys[:edge], ys[-edge:]], 1)
+    h = max((ys - a0 - b0 * (xs - 1450)).max(), 1e-12)
+    p0 = [6.0] + [h / n] * n + [a0, b0]
+    lower = [1.0] + [0] * n + [-np.inf, -np.inf]
+    upper = [30.0] + [np.inf] * n + [np.inf, np.inf]
+    popt, _ = curve_fit(model, xs, ys, p0=p0, bounds=(lower, upper), maxfev=40000)
+    w, amps = popt[0], np.array(popt[1:n + 1])
+    shares = dict(zip(C60_PHASES, amps / max(amps.sum(), 1e-30)))  # ширина общая → доли площадей
+
+    warnings = []
+    if w > 8:
+        warnings.append(f"Ширина полос {w:.1f} см⁻¹ больше расстояния мономер–димер (4 см⁻¹): "
+                        "их доли разделяются ненадёжно. Нужен спектрометр с лучшим разрешением.")
+    if abs(offset) < 1e-9:
+        warnings.append("Положение мономера взято из литературы (1469 см⁻¹). Если калибровка "
+                        "прибора сдвинута, доли будут неверны — снимите свежий C60 малой мощностью.")
+    warnings.append("Лазер сам полимеризует C60: снимайте малой мощностью и коротко "
+                    "(Liu et al. 2005: < 0.26 мВт, < 10 с при 514 нм) и сравните два "
+                    "спектра подряд — если Ag(2) сползает, образец меняется под лучом.")
+    baseline = popt[n + 1] + popt[n + 2] * (xs - 1450)
+    return {
+        "shares": shares, "fwhm": w, "peak": xs[np.argmax(ys - baseline)],
+        "fit": {"x": xs, "y": ys, "model": model(xs, *popt), "baseline": baseline,
+                "phases": {k: lorentzian(xs, c, w, hh) for k, c, hh in zip(C60_PHASES, centers, amps)}},
+        "warnings": warnings,
+    }
