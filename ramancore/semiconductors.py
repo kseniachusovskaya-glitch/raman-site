@@ -326,3 +326,58 @@ def phonon_quality(x, y, material="GaAs", instrument_fwhm=None, reference_lo=Non
     ]
     return {"table": table, "fit": fit, "lo_fraction": frac, "lo_fraction_err": frac_err,
             "lo_shift": shift, "warnings": warnings}
+
+
+# ---------- Механические напряжения по сдвигу фонона ----------
+
+# Si, пик ~520 см⁻¹, поверхность (100). Одноосное напряжение σ или
+# сумма σxx + σyy при двуосном (плёнка, край окна):
+#     σ (МПа) = −435 · Δω (см⁻¹)
+# De Wolf, Spectroscopy Europe 15(2), 6 (2003); подробный вывод —
+# De Wolf, Semicond. Sci. Technol. 11, 139 (1996).
+# Знак: пик выше эталона (Δω > 0) — сжатие (σ < 0), ниже — растяжение.
+SI_STRESS_MPA_PER_CM = -435.0
+
+# Модовые параметры Грюнайзена γ = −d ln ω / d ln V (гидростатическое
+# сжатие): Wickboldt, Anastassakis, Sauer, Cardona, Phys. Rev. B 35, 1362
+# (1987), по таблице II в Eryigit & Herman, Phys. Rev. B 53, 7775 (1996).
+# γ(LO) = 1.23 совпадает со статьёй Ксении (Квантовая электроника 2026).
+# Для двуосного напряжения в GaAs нужны фононные деформационные
+# потенциалы p, q (Cerdeira et al., Phys. Rev. B 5, 580 (1972)) — пока
+# не сверены, поэтому здесь их нет.
+GRUNEISEN = {
+    "GaAs": {"TO": 1.39, "LO": 1.23},
+}
+
+
+def si_stress(omega, omega0, omega_err=0.0):
+    """Напряжение в Si по положению пика, МПа.
+
+    omega  — измеренный центр пика Si, см⁻¹ (center из fit_peaks);
+    omega0 — центр пика ненапряжённого Si на том же приборе и лазере
+             (например, своя пластина-эталон): так сдвиг калибровки
+             прибора сокращается;
+    omega_err — погрешность omega.
+
+    Возвращает (sigma, sigma_err). Для двуосного напряжения sigma —
+    сумма σxx + σyy; для изотропного двуосного σxx = σyy = sigma / 2.
+    """
+    shift = np.asarray(omega, dtype=float) - omega0
+    return SI_STRESS_MPA_PER_CM * shift, abs(SI_STRESS_MPA_PER_CM) * np.asarray(omega_err)
+
+
+def volume_change(omega, omega0, material="GaAs", mode="LO", omega_err=0.0):
+    """Относительное изменение объёма ячейки ΔV/V (в %) по сдвигу фонона.
+
+    Из определения параметра Грюнайзена: Δω/ω0 = −γ·ΔV/V, то есть
+    ΔV/V = −(ω − ω0) / (γ·ω0). Отрицательное — сжатие решётки.
+    Строго верно для всестороннего (гидростатического) сжатия; при
+    одноосном или двуосном напряжении это лишь оценка.
+
+    Возвращает (dV, dV_err) в процентах.
+    """
+    if material not in GRUNEISEN or mode not in GRUNEISEN[material]:
+        raise ValueError(f"Нет параметра Грюнайзена для {material} {mode}")
+    gamma = GRUNEISEN[material][mode]
+    shift = np.asarray(omega, dtype=float) - omega0
+    return -100 * shift / (gamma * omega0), 100 * np.asarray(omega_err) / (gamma * omega0)
