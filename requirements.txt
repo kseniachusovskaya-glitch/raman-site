@@ -1,0 +1,2 @@
+# Для Streamlit Community Cloud: зависимости и сам пакет ramancore (точка = этот проект)
+.
