@@ -251,7 +251,8 @@ def lplus_concentration(x, y, material="GaAs", window=None, shape="gauss", **ove
     # и его высота определена надёжно (больше 5 своих погрешностей)
     weak = peak.amplitude < 3 * sigma / np.sqrt(k) or peak.amplitude < 5 * peak.amplitude_err
     if weak or not (lo <= peak.center <= hi):
-        return {**empty, "table": table, "fit": fit,
+        # table и fit не возвращаем: на графике не должно быть «подгонки» шума
+        return {**empty,
                 "warnings": ["Широкой моды L+ не видно над шумом: концентрация "
                              "мала, образец p-типа или L+ слишком затухает."]}
 
