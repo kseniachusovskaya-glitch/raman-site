@@ -10,6 +10,7 @@ import streamlit as st
 pages = st.navigation([
     st.Page("views/search.py", title="Обработка и поиск", default=True),
     st.Page("views/semiconductors.py", title="Полупроводники"),
+    st.Page("views/carbon.py", title="Углерод"),
 ])
 # Цвета графиков — в боковой панели на всех страницах. Значения
 # сохраняются в st.session_state под ключами key и читаются страницами

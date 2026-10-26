@@ -1,0 +1,80 @@
+"""Страница расчётов для углеродных материалов. Пока — аморфный углерод и DLC."""
+
+import numpy as np
+import plotly.graph_objects as go
+import streamlit as st
+
+from ramancore.carbon import fit_dlc, g_dispersion, hydrogen_content
+from ui import X_TITLE, color, show_warnings, upload
+
+st.set_page_config(page_title="Raman: углерод", layout="wide")
+st.title("Углеродные материалы")
+tabs = st.tabs(["DLC и аморфный углерод", "Графен (скоро)"])
+
+with tabs[0]:
+    st.write("Подгонка D (лоренциан) + G (профиль Брейта–Вигнера–Фано) с линейным фоном "
+             "по Ferrari & Robertson (2000). Загружайте **исходный** спектр, без вычитания "
+             "фона: наклон фона нужен для оценки водорода.")
+    c1, c2 = st.columns(2)
+    with c1:
+        data = upload("Спектр DLC", key="dlc")
+        laser = st.selectbox("Лазер, нм", [532, 514, 633, 785], key="dlc_laser")
+    with c2:
+        data2 = upload("Тот же образец на другом лазере (необязательно, для дисперсии G)",
+                       key="dlc2")
+        laser2 = st.selectbox("Лазер второго спектра, нм", [785, 633, 532, 514], key="dlc_laser2")
+    if data is None:
+        st.info("Загрузите спектр — появятся положение и ширина G, I(D)/I(G) и оценка водорода.")
+        st.stop()
+
+    x, y, _ = data
+    try:
+        r = fit_dlc(x, y)
+    except (ValueError, RuntimeError) as error:  # RuntimeError — подгонка не сошлась
+        st.error(f"Подгонка не удалась: {error}")
+        st.stop()
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Pos(G), см⁻¹", f"{r['pos_g']:.1f}", help="Положение максимума G")
+    m2.metric("FWHM(G), см⁻¹", f"{r['fwhm_g']:.0f} ± {r['fwhm_g_err']:.0f}")
+    m3.metric("I(D)/I(G)", f"{r['id_ig']:.2f} ± {r['id_ig_err']:.2f}", help="Отношение высот")
+    h, h_warn = hydrogen_content(r["m_ig"], laser)
+    m4.metric("H, ат. %", "—" if np.isnan(h) else f"{h:.0f}",
+              help=f"m/I(G) = {r['m_ig']:.2f} мкм; Casiraghi et al. 2005")
+
+    f = r["fit"]
+    fig = go.Figure()
+    fig.add_scatter(x=f["x"], y=f["y"], name="спектр", line=dict(width=1, color=color("sample")))
+    fig.add_scatter(x=f["x"], y=f["baseline"], name="фон", line=dict(dash="dash", color="#7f7f7f"))
+    fig.add_scatter(x=f["x"], y=f["baseline"] + f["d"], name="D", line=dict(dash="dot", color="#2ca02c"))
+    fig.add_scatter(x=f["x"], y=f["baseline"] + f["g"], name="G (BWF)", line=dict(dash="dot", color="#9467bd"))
+    fig.add_scatter(x=f["x"], y=f["model"], name="сумма", line=dict(width=2, color=color("fit")))
+    fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность", height=380,
+                      margin=dict(t=10))
+    st.plotly_chart(fig, use_container_width=True)
+
+    if data2 is not None:
+        try:
+            r2 = fit_dlc(data2[0], data2[1])
+            disp = g_dispersion(r["pos_g"], laser, r2["pos_g"], laser2)
+            st.metric("Дисперсия G, см⁻¹/нм", f"{disp:.3f}",
+                      help=f"Pos(G) = {r['pos_g']:.1f} при {laser} нм и "
+                           f"{r2['pos_g']:.1f} при {laser2} нм")
+            st.caption("≈ 0 — графит и нанокристаллический графит; чем больше, тем больше "
+                       "беспорядок и доля sp³ (Ferrari & Robertson, PRB 64, 075414, 2001).")
+        except (ValueError, RuntimeError) as error:
+            st.error(f"Второй спектр: {error}")
+
+    with st.expander("Как читать результат"):
+        st.markdown(
+            "- **Pos(G) и I(D)/I(G)** вместе показывают стадию по «трёхстадийной модели» "
+            "Ferrari & Robertson (2000): от графита к нанокристаллическому графиту, затем к "
+            "a-C и ta-C. Рост доли sp³ в a-C/ta-C сдвигает G и уменьшает I(D)/I(G).\n"
+            "- **FWHM(G)** растёт с беспорядком связей; у плёнок одного типа — с долей sp³ и плотностью.\n"
+            "- **H** — только для a-C:H, при 514–532 нм, и примерно от 20 ат. %.\n"
+            "- Сравнивайте спектры, снятые на одном лазере: положение G в аморфном углероде "
+            "зависит от длины волны.")
+    show_warnings(r["warnings"] + h_warn)
+
+with tabs[1]:
+    st.write("Число слоёв, дефекты, деформация и легирование — следующим шагом.")
