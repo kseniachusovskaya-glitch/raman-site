@@ -50,6 +50,7 @@ print(meta)
 - [x] Напряжения: `si_stress` (De Wolf, −435 МПа/см⁻¹), `volume_change` и `gaas_biaxial_stress` для GaAs (001) (Cerdeira et al. 1972, ≈ −3.5 см⁻¹/ГПа для LO), блокнот `12_stress.ipynb`
 - [x] Признаки лазерного повреждения: `damage_signs` (c-As, Sb, Te и их оксиды для GaAs, InAs, InSb)
 - [x] Этап 2, шаг 1: сайт `app/streamlit_app.py` — загрузка, обработка, поиск, CSV
+- [x] Этап 2, шаг 2: страница «Полупроводники» — ориентация, L+, качество, напряжения, повреждение
 
 ## Пример: анализ пика
 
