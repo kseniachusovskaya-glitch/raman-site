@@ -1,11 +1,12 @@
-"""Страница расчётов для углеродных материалов. Пока — аморфный углерод и DLC."""
+"""Страница расчётов для углеродных материалов: DLC, порошки, графен."""
 
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
 from ramancore.carbon import (
-    GRAPHENE_REF_514, fit_dlc, fit_graphene, g_dispersion, graphene_strain_doping,
+    GRAPHENE_REF_514, backes_flakes, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
+    fit_soot, g_dispersion, graphene_defects, graphene_layers, graphene_strain_doping,
     hydrogen_content,
 )
 from ui import fit_figure
@@ -15,8 +16,8 @@ st.set_page_config(page_title="Raman: углерод", layout="wide")
 st.title("Углеродные материалы")
 KINDS = {
     "dlc": "DLC и аморфный углерод (плёнки a-C, a-C:H, ta-C)",
-    "powder": "Порошки: сажа, технический и активированный уголь, графит — скоро",
-    "graphene": "Графен: деформация и легирование (число слоёв и дефекты — скоро)",
+    "powder": "Порошки: сажа, технический и активированный уголь, нанографит",
+    "graphene": "Графен: чешуйки на подложке и дисперсии",
     "cnt": "Углеродные нанотрубки — скоро",
     "c60": "Фуллерен C60 — скоро",
     "diamond": "Алмаз и наноалмаз — скоро",
@@ -89,13 +90,71 @@ if kind == "dlc":
             "зависит от длины волны.")
     show_warnings(r["warnings"] + h_warn)
 
+elif kind == "powder":
+    st.write("Разложение спектра первого порядка на 5 полос по Sadezky et al. (Carbon 43, "
+             "1731, 2005): G, D1, D2, D4 — лоренцианы, D3 — гауссиан, плюс линейный фон. "
+             "Размер кристаллитов La — по отношению площадей D1/G (Cançado et al., APL 88, "
+             "163106, 2006).")
+    data = upload("Спектр порошка", key="soot")
+    laser = st.selectbox("Лазер, нм", [532, 514, 633, 785], key="soot_laser")
+    if data is None:
+        st.info("Загрузите спектр — появятся положения, ширины и площади пяти полос и La.")
+        st.stop()
+    x, y, _ = data
+    x, y = solvent_block(x, y, key="soot")
+    try:
+        r = fit_soot(x, y)
+    except (ValueError, RuntimeError) as error:
+        st.error(f"Подгонка не удалась: {error}")
+        st.stop()
+    b = r["bands"].set_index("band")
+    la, la_warn = crystallite_size_la(b.loc["D1", "area_to_g"], laser)
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Pos(G), см⁻¹", f"{b.loc['G', 'center']:.1f}")
+    m2.metric("FWHM(D1), см⁻¹", f"{b.loc['D1', 'fwhm']:.0f}",
+              help="У Sadezky: графит 42–49, сажа 101–227 см⁻¹ — чем шире, тем больше беспорядок")
+    m3.metric("A(D1)/A(G)", f"{b.loc['D1', 'area_to_g']:.2f}", help="Отношение площадей")
+    m4.metric("La, нм", "—" if np.isnan(la) else f"{la:.0f}" + (" ⚠" if la_warn else ""),
+              help="Cançado 2006; калибровка 20–490 нм, лазеры 457.9–647 нм")
+
+    f = r["fit"]
+    fig = go.Figure()
+    fig.add_scatter(x=f["x"], y=f["y"], name="спектр", line=dict(width=1, color=color("sample")))
+    fig.add_scatter(x=f["x"], y=f["baseline"], name="фон", line=dict(dash="dash", color="#7f7f7f"))
+    palette = {"G": "#9467bd", "D1": "#2ca02c", "D2": "#8c564b", "D3": "#e377c2", "D4": "#17becf"}
+    for name, curve in f["bands"].items():
+        fig.add_scatter(x=f["x"], y=f["baseline"] + curve, name=name,
+                        line=dict(dash="dot", color=palette[name]))
+    fig.add_scatter(x=f["x"], y=f["model"], name="сумма", line=dict(width=2, color=color("fit")))
+    fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность", height=380,
+                      margin=dict(t=10))
+    st.plotly_chart(fig, use_container_width=True)
+    table = r["bands"].rename(columns={
+        "band": "полоса", "shape": "форма", "center": "положение", "center_err": "±",
+        "fwhm": "FWHM", "fwhm_err": "± FWHM", "height": "высота", "area": "площадь",
+        "area_to_g": "площадь / G"})
+    st.dataframe(table.round(2), hide_index=True)
+    with st.expander("Как читать результат"):
+        st.markdown(
+            "- **D1** (~1350) — края графеновых слоёв; **D2** (~1620) — поверхностные слои; "
+            "**D3** (~1500) — аморфный углерод; **D4** (~1200) — полиены и ионные примеси.\n"
+            "- Чем **шире D1** и больше **D3/G**, тем меньше упорядоченность (Sadezky 2005).\n"
+            "- Положение D1 и отношение D1/G зависят от лазера: сравнивайте образцы на одном лазере.\n"
+            "- **La** имеет смысл только для нанографита (20–490 нм). У сажи и угля кристаллиты "
+            "мельче, и формула неприменима.")
+    show_warnings(r["warnings"] + la_warn)
+
 elif kind == "graphene":
-    st.write("Подгонка G, 2D и D лоренцианами. Деформация и легирование — по положениям "
-             "G и 2D (Lee et al., Nat. Commun. 3, 1024, 2012).")
+    st.write("Подгонка G, 2D и D лоренцианами.")
+    c1, c2 = st.columns(2)
+    form = c1.radio("Образец", ["flake", "dispersion"], horizontal=True,
+                    format_func={"flake": "чешуйка или плёнка на подложке",
+                                 "dispersion": "дисперсия (жидкофазная эксфолиация)"}.get)
+    laser = c2.selectbox("Лазер, нм", [532, 514.5, 633, 785], key="gr_laser")
     data = upload("Спектр графена", key="gr")
     if data is None:
-        st.info("Загрузите спектр — появятся положения G и 2D, I(2D)/I(G), I(D)/I(G), "
-                "деформация и легирование.")
+        st.info("Загрузите спектр. Для чешуйки — число слоёв, дефекты, деформация и "
+                "легирование; для дисперсии — средние размер и толщина чешуек.")
         st.stop()
     x, y, _ = data
     x, y = solvent_block(x, y, key="gr")
@@ -109,32 +168,100 @@ elif kind == "graphene":
     m2.metric("Pos(2D), см⁻¹", f"{r.get('pos_2d', float('nan')):.1f}",
               help=f"FWHM {r.get('fwhm_2d', float('nan')):.1f} см⁻¹")
     m3.metric("I(2D)/I(G)", f"{r['i2d_ig']:.2f}", help="По высотам")
-    m4.metric("I(D)/I(G)", f"{r['id_ig']:.2f}", help="0 — полоса D не найдена")
-    for name, label in [("g", "G"), ("2d", "2D"), ("d", "D")]:
-        if name in r["tables"]:
-            fig = fit_figure(x, y, r["tables"][name], r["fits"][name], title=label)
-            st.plotly_chart(fig, use_container_width=True)
+    m4.metric("I(D)/I(G)", f"{r['id_ig']:.2f}", help="По высотам; 0 — полоса D не найдена")
+    with st.expander("Подгонка G, 2D и D"):
+        for name, label in [("g", "G"), ("2d", "2D"), ("d", "D")]:
+            if name in r["tables"]:
+                fig = fit_figure(x, y, r["tables"][name], r["fits"][name], title=label)
+                st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Деформация и легирование")
-    if "pos_2d" not in r:
-        st.warning("Нужна полоса 2D.")
-    else:
-        c1, c2, c3 = st.columns(3)
-        g0 = c1.number_input("ωG0 эталона, см⁻¹", value=GRAPHENE_REF_514[0], step=0.1)
-        d0 = c2.number_input("ω2D0 эталона, см⁻¹", value=GRAPHENE_REF_514[1], step=0.1,
-                             help="По умолчанию — Lee et al. для 514.5 нм")
-        kind_strain = c3.selectbox("Деформация", ["biaxial", "uniaxial"],
-                                   format_func={"biaxial": "двуосная",
-                                                "uniaxial": "одноосная"}.get)
-        sd = graphene_strain_doping(r["pos_g"], r["pos_2d"], (g0, d0), kind_strain)
+    if form == "flake":
+        st.subheader("Число слоёв")
+        if "pos_2d" not in r:
+            st.warning("Нужна полоса 2D.")
+        else:
+            try:
+                lay = graphene_layers(x, y, r["pos_2d"], r["height_g"], laser)
+                st.success(lay["verdict"])
+                st.caption(f"FWHM 2D (один лоренциан) = {lay['fwhm_1']:.1f} см⁻¹; "
+                           f"остаток 4 компонент / 1 компоненты = {lay['rss_ratio']:.2f} "
+                           "(меньше 0.5 — 2D несимметрична). Ferrari et al., PRL 97, 187401 (2006).")
+                f = lay["fit"]
+                fig = go.Figure()
+                fig.add_scatter(x=f["x"], y=f["y"], name="спектр",
+                                line=dict(width=1, color=color("sample")))
+                fig.add_scatter(x=f["x"], y=f["single"], name="1 лоренциан",
+                                line=dict(width=2, color=color("fit")))
+                fig.add_scatter(x=f["x"], y=f["bilayer"], name="4 компоненты",
+                                line=dict(width=2, dash="dash", color="#2ca02c"))
+                fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность",
+                                  height=320, margin=dict(t=10))
+                st.plotly_chart(fig, use_container_width=True)
+                show_warnings(lay["warnings"])
+            except (ValueError, RuntimeError) as error:
+                st.error(f"Форма 2D: {error}")
+
+        st.subheader("Дефекты")
+        d = graphene_defects(r["id_ig"], laser, r["fwhm_g"])
         s1, s2 = st.columns(2)
-        s1.metric("Деформация, %", f"{sd['strain_percent']:+.3f}", help="> 0 — растяжение")
-        s2.metric("Сдвиг G от легирования, см⁻¹", f"{sd['dg_doping']:+.1f}")
-        show_warnings(sd["warnings"])
-    st.caption("Число слоёв по форме 2D и плотность дефектов по I(D)/I(G) появятся после "
-               "сверки с Ferrari et al. 2006 и Cançado et al. 2011.")
+        s1.metric("L_D, нм", "—" if np.isnan(d["ld"]) else f"{d['ld']:.1f} ± {d['ld_err']:.1f}",
+                  help="Среднее расстояние между дефектами; Cançado et al., Nano Lett. 11, 3190 (2011)")
+        s2.metric("n_D, см⁻²", "—" if np.isnan(d["nd"]) else f"{d['nd']:.2e}",
+                  help="Плотность дефектов")
+        show_warnings(d["warnings"])
+
+        st.subheader("Деформация и легирование")
+        if "pos_2d" not in r:
+            st.warning("Нужна полоса 2D.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            g0 = c1.number_input("ωG0 эталона, см⁻¹", value=GRAPHENE_REF_514[0], step=0.1)
+            d0 = c2.number_input("ω2D0 эталона, см⁻¹", value=GRAPHENE_REF_514[1], step=0.1,
+                                 help="По умолчанию — Lee et al. для 514.5 нм")
+            kind_strain = c3.selectbox("Деформация", ["biaxial", "uniaxial"],
+                                       format_func={"biaxial": "двуосная",
+                                                    "uniaxial": "одноосная"}.get)
+            sd = graphene_strain_doping(r["pos_g"], r["pos_2d"], (g0, d0), kind_strain)
+            s1, s2 = st.columns(2)
+            s1.metric("Деформация, %", f"{sd['strain_percent']:+.3f}", help="> 0 — растяжение")
+            s2.metric("Сдвиг G от легирования, см⁻¹", f"{sd['dg_doping']:+.1f}")
+            st.caption("Lee et al., Nat. Commun. 3, 1024 (2012).")
+            show_warnings(sd["warnings"])
+
+    else:
+        st.subheader("Размер и толщина чешуек")
+        st.write("Метрики Backes et al. (Nanoscale, 2016, doi:10.1039/C5NR08047A) для графена "
+                 "жидкофазной эксфолиации.")
+        liquid = st.radio("Где снят спектр", [False, True], horizontal=True,
+                          format_func={False: "высохшая капля или плёнка",
+                                       True: "прямо в жидкости"}.get)
+        graphite = upload("Спектр исходного графита (необязательно: для длины по D и метрики M2)",
+                          key="gr_parent")
+        id_graphite, m2 = None, None
+        if graphite is not None:
+            try:
+                id_graphite = fit_graphene(graphite[0], graphite[1])["id_ig"]
+                m2, w1 = backes_m2(x, y, graphite[0], graphite[1])
+                st.caption(f"Графит: I(D)/I(G) = {id_graphite:.2f}; максимум 2D при "
+                           f"{w1:.0f} см⁻¹; M2 = {m2:.2f}")
+            except (ValueError, RuntimeError) as error:
+                st.error(f"Спектр графита: {error}")
+        try:
+            m1 = backes_m1(x, y)  # по максимумам, без подгонки — как в статье
+        except ValueError:
+            m1 = None
+        bk = backes_flakes(fwhm_g=r["fwhm_g"], id_ig=r["id_ig"], id_ig_graphite=id_graphite,
+                           i2d_ig=m1, m2=m2, laser_nm=laser, liquid=liquid)
+        labels = [("l_width", "<L> по ширине G, мкм", "{:.2f} ± {:.2f}"),
+                  ("l_d", "<L> по I(D)/I(G), мкм", "{:.2f} ± {:.2f}"),
+                  ("n_m1", "<N> по I(2D)/I(G)", "{:.1f} ± {:.1f}"),
+                  ("n_m2", "<N> по форме 2D (M2)", "{:.1f} ± {:.1f}")]
+        cols = st.columns(4)
+        for col, (key, label, fmt) in zip(cols, labels):
+            col.metric(label, fmt.format(*bk[key]) if key in bk else "—")
+        st.caption("<L> — средняя длина чешуек, <N> — среднее число слоёв. Длина по D и "
+                   "M2 требуют спектр исходного графита.")
+        show_warnings(bk["warnings"])
 
 else:
-    st.info("Этот расчёт в работе. План: порошки — разложение на 5 полос (Sadezky 2005) и "
-            "размер кристаллитов La (Cançado 2006); графен — число слоёв, дефекты, деформация "
-            "и легирование, размер и толщина чешуек в дисперсии (Backes 2016).")
+    st.info("Этот расчёт в работе.")
