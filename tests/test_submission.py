@@ -37,13 +37,16 @@ def test_short_spectrum_rejected():
 
 
 def test_make_submission():
-    sub_id, files = make_submission(X, Y, GOOD, "a.csv", b"1,2\n", now=NOW)
+    # Имя как у прибора: пробелы, кириллица, % — в заявке должно стать безопасным
+    sub_id, files = make_submission(X, Y, GOOD, "N567-1 x100 100% 532нм back side.csv",
+                                    b"1,2\n", now=NOW)
     assert sub_id == "20261026-190000-gaas-532"
     meta = json.loads(files["metadata.json"])
     assert meta["material"] == "GaAs" and meta["n_points"] == X.size
     x, y = np.loadtxt(io.BytesIO(files["spectrum.txt"]), unpack=True)
     assert np.allclose(x, X) and np.allclose(y, Y, atol=1e-4)
-    assert files["original_a.csv"] == b"1,2\n"
+    assert files["original.csv"] == b"1,2\n"
+    assert meta["original_file"] == "N567-1 x100 100% 532нм back side.csv"
 
 
 def test_library_row_hides_email():
@@ -71,9 +74,10 @@ def test_send_to_github_builds_requests():
         sent.append(request)
         return FakeResponse()
 
-    sub_id, files = make_submission(X, Y, GOOD, now=NOW)
+    sub_id, files = make_submission(X, Y, GOOD, "файл 1.txt", b"1", now=NOW)
     paths = send_to_github(sub_id, files, "user/raman-submissions", "TOKEN", opener=opener)
     assert paths[0] == f"submissions/{sub_id}/spectrum.txt"
     assert sent[0].get_method() == "PUT"
     assert sent[0].full_url.endswith(paths[0])
     assert sent[0].headers["Authorization"] == "Bearer TOKEN"
+    assert all(" " not in r.full_url for r in sent)

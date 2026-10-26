@@ -16,8 +16,10 @@ import io
 import json
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 
@@ -137,7 +139,8 @@ def make_submission(x, y, meta, original_name=None, original_bytes=None, now=Non
     """Собирает заявку. Возвращает (sub_id, files), files — {имя: bytes}:
       spectrum.txt  — x и y через табуляцию (шапка # — комментарии);
       metadata.json — описание (все поля FIELDS + время, имя исходного файла);
-      original_<имя> — исходный файл без изменений (если передан).
+      original<расширение> — исходный файл без изменений (если передан);
+                       его настоящее имя (с пробелами, кириллицей) — в metadata.json.
     """
     now = now or datetime.now(timezone.utc)
     sub_id = f"{now:%Y%m%d-%H%M%S}-{_slug(meta.get('material'))}-{int(float(meta['laser_nm']))}"
@@ -150,7 +153,9 @@ def make_submission(x, y, meta, original_name=None, original_bytes=None, now=Non
     files = {"spectrum.txt": buf.getvalue().encode("utf-8"),
              "metadata.json": json.dumps(record, ensure_ascii=False, indent=2).encode("utf-8")}
     if original_bytes is not None and original_name:
-        files[f"original_{original_name}"] = original_bytes
+        # Имя файла в заявке — только латиница: пробелы и кириллица ломают адрес в GitHub API
+        suffix = re.sub(r"[^0-9a-zA-Z.]", "", Path(original_name).suffix)[:10]
+        files[f"original{suffix}"] = original_bytes
     return sub_id, files
 
 
@@ -166,7 +171,8 @@ def send_to_github(sub_id, files, repo, token, folder="submissions", branch="mai
         body = json.dumps({"message": f"Заявка {sub_id}: {name}", "branch": branch,
                            "content": base64.b64encode(data).decode("ascii")}).encode("utf-8")
         request = urllib.request.Request(
-            f"https://api.github.com/repos/{repo}/contents/{path}", data=body, method="PUT",
+            f"https://api.github.com/repos/{repo}/contents/{urllib.parse.quote(path)}",
+            data=body, method="PUT",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
                      "Content-Type": "application/json",
                      "X-GitHub-Api-Version": "2022-11-28"})
