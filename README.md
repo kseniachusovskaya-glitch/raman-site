@@ -40,6 +40,7 @@ print(meta)
 - [x] `thermal.py`: температура по сдвигу фонона (модель Балканского, калибровка по своей серии), блокнот `10_temperature.ipynb`
 - [x] Качество кристалла: `phonon_quality` (FWHM, сдвиг LO, доля LO) и `intrinsic_fwhm` (вычет аппаратной ширины), блокнот `11_crystal_quality.ipynb`
 - [x] Напряжения: `si_stress` (De Wolf, −435 МПа/см⁻¹), `volume_change` и `gaas_biaxial_stress` для GaAs (001) (Cerdeira et al. 1972, ≈ −3.5 см⁻¹/ГПа для LO), блокнот `12_stress.ipynb`
+- [x] Признаки лазерного повреждения: `damage_signs` (c-As, Sb, Te и их оксиды для GaAs, InAs, InSb)
 
 ## Пример: анализ пика
 

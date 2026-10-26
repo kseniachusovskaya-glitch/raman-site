@@ -7,7 +7,10 @@
 
 import numpy as np
 
+import pandas as pd
+
 from ramancore.peaks import find_peaks, fit_peaks, intrinsic_fwhm, noise_level
+from ramancore.preprocess import remove_spikes, subtract_baseline
 
 # ---------- GaAs: ориентация поверхности по правилам отбора ----------
 
@@ -432,3 +435,102 @@ def gaas_biaxial_stress(omega, omega0, mode="LO", omega_err=0.0):
     sigma = shift / b
     err = np.hypot(np.asarray(omega_err) / b, sigma * b_err / b)
     return sigma, err
+
+
+# ---------- Признаки лазерного повреждения ----------
+
+# При перегреве лазером A3B5 разлагается: летучий элемент V группы
+# выделяется в виде кристаллических включений и окисляется на воздухе.
+# Положения пиков продуктов, см⁻¹ (первое — главный маркер):
+#   c-As — ~260 и ~195: Tanta et al., arXiv:1601.06583,
+#          doi:10.1063/1.4937442 (лазерное окисление InAs);
+#   Sb — A1g 149.8, Eg 110: Wang, Kunc, Loa, Schwarz, Syassen,
+#          arXiv:cond-mat/0608676 (2006);
+#   Te — A1 ~122, E ~142 и ~94: Du et al., arXiv:1704.07020 (2017),
+#          тонкие слои Te (в RRUFF R060136 спектр начинается со 120 см⁻¹);
+#   оксиды — центры самых сильных пиков эталонов RRUFF (532 нм),
+#          найденные нашими find_peaks + fit_peaks; номер образца — в source.
+# Оксидов Ga2O3 и In2O3 в RRUFF нет, поэтому их здесь нет.
+DAMAGE_PRODUCTS = {
+    "c-As": {"formula": "As", "peaks": [260.0, 195.0],
+             "source": "Tanta et al., doi:10.1063/1.4937442"},
+    "As2O3 арсенолит": {"formula": "As2O3", "peaks": [368.7, 267.7, 558.7],
+                        "source": "RRUFF R050383, R080095"},
+    "As2O3 клаудетит": {"formula": "As2O3", "peaks": [458.0, 172.3],
+                        "source": "RRUFF R050313"},
+    "Sb": {"formula": "Sb", "peaks": [149.8, 110.0],
+           "source": "Wang et al., arXiv:cond-mat/0608676 (A1g, Eg)"},
+    "Sb2O3 сенармонтит": {"formula": "Sb2O3", "peaks": [191.5, 452.0],
+                          "source": "RRUFF R060002, R060075"},
+    "Sb2O3 валентинит": {"formula": "Sb2O3", "peaks": [293.0, 141.0, 500.0],
+                         "source": "RRUFF R050389, R060516, R120096"},
+    "Te": {"formula": "Te", "peaks": [122.0, 142.0, 94.0],
+           "source": "Du et al., arXiv:1704.07020 (A1, E2, E1)"},
+    "TeO2 теллурит": {"formula": "TeO2", "peaks": [148.4, 645.1],
+                      "source": "RRUFF R050285"},
+}
+
+# Какие продукты искать для какого материала (Te — для легированных Te)
+DAMAGE_BY_MATERIAL = {
+    "GaAs": ["c-As", "As2O3 арсенолит", "As2O3 клаудетит", "Te", "TeO2 теллурит"],
+    "InAs": ["c-As", "As2O3 арсенолит", "As2O3 клаудетит"],
+    "InSb": ["Sb", "Sb2O3 сенармонтит", "Sb2O3 валентинит", "Te", "TeO2 теллурит"],
+}
+
+
+def damage_signs(x, y, material="InAs", tolerance=8.0, min_snr=8):
+    """Ищет в спектре пики продуктов лазерного разложения и окисления.
+
+    Спектр обрезается до 80–800 см⁻¹, из него убираются космические лучи
+    и фон, затем ищутся пики. Продукт считается найденным, если есть пик
+    в пределах tolerance от его главного маркера. Пики ближе tolerance
+    к TO/LO самого материала и к их суммам второго порядка (2TO, TO+LO,
+    2LO — оценка по частотам в центре зоны) не учитываются.
+    tolerance = 8 см⁻¹ — это аппаратная ширина (~7 см⁻¹) с запасом на
+    сдвиг калибровки прибора.
+
+    Возвращает словарь:
+      table    — продукт, формула, маркеры, совпавшие пики, found,
+                 all_markers, source;
+      peaks    — все найденные пики, которые не являются TO/LO материала;
+      warnings — оговорки.
+    """
+    if material not in DAMAGE_BY_MATERIAL:
+        raise ValueError(f"Нет списка продуктов для {material}; есть: {list(DAMAGE_BY_MATERIAL)}")
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x > 80) & (x < 800)
+    x, y = x[keep], remove_spikes(y[keep])
+    y, _ = subtract_baseline(x, y)
+    to, lo = LOPC_PARAMS[material]["TO"], LOPC_PARAMS[material]["LO"]
+    host = [to, lo, 2 * to, to + lo, 2 * lo]
+    peaks = np.array([p for p in find_peaks(x, y, min_snr=min_snr)
+                      if min(abs(p - h) for h in host) > tolerance])
+    rows = []
+    for name in DAMAGE_BY_MATERIAL[material]:
+        product = DAMAGE_PRODUCTS[name]
+        matched = []
+        for marker in product["peaks"]:
+            close = peaks[np.abs(peaks - marker) <= tolerance] if len(peaks) else []
+            matched.append(round(float(close[0]), 1) if len(close) else None)
+        main_hidden = min(abs(product["peaks"][0] - h) for h in host) <= tolerance
+        # Найден: есть главный пик, а если он скрыт пиком материала — любой другой
+        found = matched[0] is not None or (main_hidden and any(m is not None for m in matched))
+        visible = [m for m, marker in zip(matched, product["peaks"])
+                   if min(abs(marker - h) for h in host) > tolerance]
+        rows.append({"product": name, "formula": product["formula"],
+                     "markers": product["peaks"], "matched": matched, "found": found,
+                     "all_markers": found and all(m is not None for m in visible),
+                     "source": product["source"]})
+    table = pd.DataFrame(rows)
+    hidden = [name for name in DAMAGE_BY_MATERIAL[material]
+              if min(abs(DAMAGE_PRODUCTS[name]["peaks"][0] - h) for h in host) <= tolerance]
+    warnings = [f"Главный пик «{name}» совпадает с пиком самого {material}: "
+                "его не видно, смотрите остальные маркеры." for name in hidden]
+    warnings += ["Совпадение по положению — это подсказка, а не доказательство: "
+                "проверяйте все маркеры продукта и сравнивайте с непрожжённым участком."]
+    if material in ("GaAs", "InAs", "InSb"):
+        warnings.append("Te и TeO2 имеют смысл только для образцов, легированных Te.")
+    if table.found.any():
+        warnings.append("Если продукты найдены, уменьшите мощность лазера: спектр снят "
+                        "с повреждённого участка.")
+    return {"table": table, "peaks": peaks, "warnings": warnings}
