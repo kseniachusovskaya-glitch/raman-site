@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from ramancore.carbon import (
-    GRAPHENE_REF_514, backes_flakes, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
+    GRAPHENE_REF_514, backes_flakes, cnt_d_to_g, find_rbm, fit_cnt_g, backes_m1, backes_m2, crystallite_size_la, fit_dlc, fit_graphene,
     fit_soot, g_dispersion, graphene_defects, graphene_layers, graphene_strain_doping,
     hydrogen_content,
 )
@@ -18,7 +18,7 @@ KINDS = {
     "dlc": "DLC и аморфный углерод (плёнки a-C, a-C:H, ta-C)",
     "powder": "Порошки: сажа, технический и активированный уголь, нанографит",
     "graphene": "Графен: чешуйки на подложке и дисперсии",
-    "cnt": "Углеродные нанотрубки — скоро",
+    "cnt": "Углеродные нанотрубки",
     "c60": "Фуллерен C60 — скоро",
     "diamond": "Алмаз и наноалмаз — скоро",
 }
@@ -262,6 +262,72 @@ elif kind == "graphene":
         st.caption("<L> — средняя длина чешуек, <N> — среднее число слоёв. Длина по D и "
                    "M2 требуют спектр исходного графита.")
         show_warnings(bk["warnings"])
+
+elif kind == "cnt":
+    st.write("Диаметр трубок по радиальной дышащей моде (RBM, 100–400 см⁻¹), тип трубок по "
+             "форме G (металлические — с профилем Брейта–Вигнера–Фано) и дефектность по I(D)/I(G).")
+    data = upload("Спектр нанотрубок", key="cnt")
+    model = st.radio("Формула для RBM", ["environment", "pristine", "jorio"], horizontal=True,
+                     format_func={"environment": "трубки в окружении (Araujo 2008)",
+                                  "pristine": "свободные трубки, 227/dt",
+                                  "jorio": "отдельные на SiO₂, 248/dt"}.get,
+                     help="Пучки, порошок, ПАВ, подложка — первый вариант")
+    if data is None:
+        st.info("Загрузите спектр — появятся диаметры по RBM, тип трубок и I(D)/I(G).")
+        st.stop()
+    x, y, _ = data
+    x, y = solvent_block(x, y, key="cnt")
+
+    st.subheader("RBM → диаметр")
+    rbm = find_rbm(x, y)
+    if x.min() > 150:
+        st.warning(f"Спектр начинается с {x.min():.0f} см⁻¹: RBM толстых трубок срезаны.")
+    if rbm.empty:
+        st.info("RBM не найдены: многостенные трубки, толстые трубки (dt > ~2.5 нм) или "
+                "ни одна трубка не в резонансе с лазером.")
+    else:
+        col = {"environment": "dt_environment", "pristine": "dt_pristine", "jorio": "dt_jorio"}[model]
+        st.dataframe(rbm[["omega", col, "height"]].rename(columns={
+            "omega": "ω RBM, см⁻¹", col: "диаметр, нм", "height": "высота"}).round(2),
+            hide_index=True)
+        st.caption("В спектре видны только трубки в резонансе с вашим лазером: другой лазер "
+                   "покажет другие диаметры. Araujo et al., PRB 77, 241403 (2008); "
+                   "Jorio et al., PRL 86, 1118 (2001).")
+
+    st.subheader("G-полоса: тип трубок")
+    try:
+        g = fit_cnt_g(x, y)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("G+, см⁻¹", f"{g['pos_g_plus']:.1f}")
+        m2.metric("G−, см⁻¹", f"{g['pos_g_minus']:.1f}")
+        m3.metric("Расщепление G, см⁻¹", f"{g['split']:.1f}")
+        m4.metric("Диаметр по G, нм", "—" if np.isnan(g["dt"]) else f"{g['dt']:.2f}",
+                  help="ωG− = ωG+ − C/dt² (Jorio et al., PRB 65, 155412, 2002)")
+        st.success({"metallic": "G− с профилем Брейта–Вигнера–Фано: в резонансе в основном "
+                                "металлические трубки (Brown et al., PRB 63, 155414, 2001).",
+                    "semiconducting": "G− — лоренциан: в резонансе в основном "
+                                      "полупроводниковые трубки."}[g["kind"]])
+        f = g["fit"]
+        fig = go.Figure()
+        fig.add_scatter(x=f["x"], y=f["y"], name="спектр", line=dict(width=1, color=color("sample")))
+        fig.add_scatter(x=f["x"], y=f["baseline"] + f["g_plus"], name="G+",
+                        line=dict(dash="dot", color="#9467bd"))
+        fig.add_scatter(x=f["x"], y=f["baseline"] + f["g_minus"], name="G−",
+                        line=dict(dash="dot", color="#2ca02c"))
+        fig.add_scatter(x=f["x"], y=f["model"], name="сумма", line=dict(width=2, color=color("fit")))
+        fig.update_layout(xaxis_title=X_TITLE, yaxis_title="Интенсивность", height=320,
+                          margin=dict(t=10))
+        st.plotly_chart(fig, use_container_width=True)
+        show_warnings(g["warnings"])
+    except (ValueError, RuntimeError) as error:
+        st.error(f"Подгонка G: {error}")
+
+    st.subheader("Дефекты")
+    try:
+        st.metric("I(D)/I(G)", f"{cnt_d_to_g(x, y):.3f}",
+                  help="По максимумам; меньше — меньше дефектов и аморфного углерода")
+    except ValueError as error:
+        st.error(str(error))
 
 else:
     st.info("Этот расчёт в работе.")

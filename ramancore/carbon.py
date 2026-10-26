@@ -566,3 +566,150 @@ def crystallite_size_la(area_d_to_g, laser_nm):
     if not 455 <= laser_nm <= 650:
         warnings.append(f"Формула проверена для видимых лазеров 457.9–647 нм, а у вас {laser_nm} нм.")
     return la, warnings
+
+
+# ---------- Углеродные нанотрубки ----------
+
+# Радиальная дышащая мода (RBM) → диаметр трубки dt (нм), ω в см⁻¹:
+#   Araujo et al., Phys. Rev. B 77, 241403(R) (2008), doi:10.1103/PhysRevB.77.241403:
+#     свободная («чистая») трубка: ω = 227.0/dt (A = 227.0 ± 0.3 см⁻¹·нм);
+#     трубка в окружении (пучки, ПАВ, подложка SiO₂, воздух) — ур. 4:
+#     ω = (227/dt)·√(1 + C·dt²), C = 0.05786 нм⁻².
+#     При dt < 1.2 нм вклад окружения сильнее зависит от образца (сдвиг 1–10 см⁻¹).
+#   Jorio et al., Phys. Rev. Lett. 86, 1118 (2001): ω = 248/dt — отдельные трубки на SiO₂.
+CNT_RBM_A = 227.0
+CNT_RBM_C_ENV = 0.05786
+CNT_RBM_JORIO = 248.0
+# Расщепление G (Jorio et al., Phys. Rev. B 65, 155412 (2002); числа по обзорному
+# докладу S. Maruyama, NT05 tutorial, где эта работа процитирована):
+#   ωG− = ωG+ − C/dt², ωG+ ≈ 1591 см⁻¹, C = 47.7 (полупроводниковые) и 79.5
+#   (металлические) см⁻¹·нм². Измерено на отдельных трубках.
+# У металлических трубок G− имеет форму Брейта–Вигнера–Фано
+# (Brown et al., Phys. Rev. B 63, 155414 (2001)).
+CNT_G_PLUS = 1591.0
+CNT_G_SPLIT_C = {"semiconducting": 47.7, "metallic": 79.5}
+
+
+def rbm_diameter(omega, model="environment"):
+    """Диаметр трубки dt, нм, по частоте RBM ω (см⁻¹).
+
+    model: "environment" — Araujo 2008, ур. 4 (обычные образцы: пучки, ПАВ,
+    подложка); "pristine" — свободная трубка, ω = 227/dt; "jorio" — ω = 248/dt.
+    Для "environment" уравнение решено относительно dt:
+        ω²·dt² = 227²·(1 + C·dt²)  →  dt = 227 / √(ω² − 227²·C).
+    """
+    omega = np.asarray(omega, dtype=float)
+    if model == "environment":
+        return CNT_RBM_A / np.sqrt(omega**2 - CNT_RBM_A**2 * CNT_RBM_C_ENV)
+    if model == "pristine":
+        return CNT_RBM_A / omega
+    if model == "jorio":
+        return CNT_RBM_JORIO / omega
+    raise ValueError(f"Неизвестная модель: {model}")
+
+
+def find_rbm(x, y, window=(100.0, 400.0), min_snr=8):
+    """Ищет пики RBM и считает для каждого диаметр по трём моделям.
+
+    Возвращает таблицу (pandas): omega, height, dt_environment, dt_pristine,
+    dt_jorio. Пустая таблица — RBM нет (многостенные трубки или RBM срезана
+    фильтром прибора).
+    """
+    import pandas as pd
+
+    from ramancore.peaks import find_peaks
+    from ramancore.preprocess import subtract_baseline
+
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x >= window[0] - 30) & (x <= window[1] + 30)
+    if keep.sum() < 20:
+        return pd.DataFrame(columns=["omega", "height", "dt_environment", "dt_pristine", "dt_jorio"])
+    xs = x[keep]
+    ys, _ = subtract_baseline(xs, y[keep])
+    centers = np.asarray(find_peaks(xs, ys, min_snr=min_snr), dtype=float)
+    centers = centers[(centers >= window[0]) & (centers <= window[1])]
+    heights = np.interp(centers, xs, ys)
+    return pd.DataFrame({
+        "omega": centers, "height": heights,
+        "dt_environment": rbm_diameter(centers, "environment"),
+        "dt_pristine": rbm_diameter(centers, "pristine"),
+        "dt_jorio": rbm_diameter(centers, "jorio"),
+    })
+
+
+def fit_cnt_g(x, y, window=(1450.0, 1680.0)):
+    """Подгоняет G-полосу нанотрубок двумя способами на линейном фоне:
+      A) G+ и G− — лоренцианы (полупроводниковые трубки);
+      B) G+ — лоренциан, G− — BWF (металлические трубки).
+    Выбирается модель с меньшим остатком; B считается лучше, только если
+    остаток меньше на 20 % и |1/Q| > 0.05 (пороги — наш выбор), иначе BWF
+    вырождается в лоренциан.
+
+    Возвращает словарь: kind ("semiconducting"/"metallic"), pos_g_plus,
+    pos_g_minus (для BWF — положение максимума), split, dt (нм, по Jorio 2002),
+    q (для BWF), height_g_plus, fit, warnings.
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x >= window[0]) & (x <= window[1])
+    xs, ys = x[keep], y[keep]
+    if xs.size < 20:
+        raise ValueError("Слишком мало точек в области G (1450–1680 см⁻¹)")
+    edge = max(3, xs.size // 20)
+    b0, a0 = np.polyfit(np.r_[xs[:edge], xs[-edge:]] - 1580, np.r_[ys[:edge], ys[-edge:]], 1)
+    rest = ys - (a0 + b0 * (xs - 1580))
+    h = max(rest.max(), 1e-12)
+    c_plus = xs[np.argmax(rest)]
+
+    def lor2(xx, c1, w1, h1, c2, w2, h2, a, b):
+        return lorentzian(xx, c1, w1, h1) + lorentzian(xx, c2, w2, h2) + a + b * (xx - 1580)
+
+    def lor_bwf(xx, c1, w1, h1, c2, w2, h2, q, a, b):
+        return lorentzian(xx, c1, w1, h1) + bwf(xx, c2, w2, h2, q) + a + b * (xx - 1580)
+
+    lo_plus, hi_plus = c_plus - 15, c_plus + 15
+    pa, _ = curve_fit(lor2, xs, ys, p0=[c_plus, 15, h, c_plus - 25, 20, 0.3 * h, a0, b0],
+                      bounds=([lo_plus, 3, 0, 1480, 3, 0, -np.inf, -np.inf],
+                              [hi_plus, 60, np.inf, c_plus - 3, 120, np.inf, np.inf, np.inf]),
+                      maxfev=20000)
+    rss_a = np.sum((ys - lor2(xs, *pa)) ** 2)
+    pb, _ = curve_fit(lor_bwf, xs, ys, p0=[c_plus, 15, h, c_plus - 40, 50, 0.3 * h, -3, a0, b0],
+                      bounds=([lo_plus, 3, 0, 1480, 5, 0, -50, -np.inf, -np.inf],
+                              [hi_plus, 60, np.inf, c_plus - 3, 200, np.inf, -0.3, np.inf, np.inf]),
+                      maxfev=20000)
+    rss_b = np.sum((ys - lor_bwf(xs, *pb)) ** 2)
+
+    warnings = []
+    metallic = rss_b < 0.8 * rss_a and abs(1 / pb[6]) > 0.05
+    if metallic:
+        kind, p = "metallic", pb
+        g_minus, _ = bwf_maximum(pb[3], pb[4], pb[6])
+        model, g_minus_curve = lor_bwf(xs, *pb), bwf(xs, pb[3], pb[4], pb[5], pb[6])
+    else:
+        kind, p = "semiconducting", pa
+        g_minus = pa[3]
+        model, g_minus_curve = lor2(xs, *pa), lorentzian(xs, pa[3], pa[4], pa[5])
+    split = p[0] - g_minus
+    if p[5] < 0.02 * p[2]:
+        warnings.append("G− почти не видна: G не расщеплена — похоже на многостенные трубки "
+                        "или графит; диаметр по G не определить.")
+        dt = np.nan
+    else:
+        dt = np.sqrt(CNT_G_SPLIT_C[kind] / split)
+    warnings.append("Диаметр по расщеплению G (Jorio 2002) получен на отдельных трубках; "
+                    "в пучках с разными трубками это грубая оценка — надёжнее RBM.")
+    return {
+        "kind": kind, "pos_g_plus": p[0], "pos_g_minus": g_minus, "split": split, "dt": dt,
+        "q": pb[6] if metallic else np.nan, "height_g_plus": p[2],
+        "rss_ratio": rss_b / max(rss_a, 1e-30),
+        "fit": {"x": xs, "y": ys, "model": model, "baseline": p[-2] + p[-1] * (xs - 1580),
+                "g_plus": lorentzian(xs, p[0], p[1], p[2]), "g_minus": g_minus_curve},
+        "warnings": warnings,
+    }
+
+
+def cnt_d_to_g(x, y):
+    """I(D)/I(G+) нанотрубок по максимумам полос над линейным фоном.
+    Чем меньше, тем меньше дефектов и аморфного углерода в образце."""
+    _, d = _band_minus_line(x, y, 1250, 1450)
+    _, g = _band_minus_line(x, y, 1500, 1680)
+    return max(d.max(), 0.0) / g.max()
