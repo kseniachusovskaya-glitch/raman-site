@@ -13,6 +13,14 @@ uv sync          # создаёт .venv и ставит зависимости �
 uv run pytest    # запускает тесты
 ```
 
+## Сайт
+
+```bash
+uv run streamlit run app/streamlit_app.py   # откроется в браузере, localhost:8501
+```
+
+Загрузка спектра, графики до и после обработки, поиск по базе, выгрузка CSV.
+
 ## Пример
 
 ```python
@@ -33,6 +41,7 @@ print(meta)
 - [x] `normalize`, `resample` и весь конвейер `process` + тесты, блокнот `06_pipeline.ipynb`
 - [x] `library.py` (сборка и загрузка базы, проверка источника и лицензии), `matching.py` (HQI и HQI по производным), `scripts/build_library.py`
 - [x] Импорт RRUFF (`scripts/import_rruff.py`), фильтр поиска по классу, база из 9655 эталонов
+- [x] Этап 2, шаг 1: сайт `app/streamlit_app.py` — загрузка, обработка, поиск, CSV
 - [x] `semiconductors.py`: `gaas_orientation` — ориентация GaAs по I(TO)/I(LO), блокнот `07_search_and_gaas.ipynb`
 - [x] Свои эталоны (`scripts/import_own.py`, `data/library_own/` — только локально, не в git)
 - [x] `export.py`: `to_csv` (спектр + фон + параметры в шапке) и `table_to_csv` (пики, поиск), блокнот `08_export.ipynb`
