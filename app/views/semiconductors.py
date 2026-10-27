@@ -14,7 +14,7 @@ from ramancore.semiconductors import (
 )
 from ui import fit_figure, show_warnings, solvent_block, upload
 
-st.set_page_config(page_title="Raman: полупроводники", layout="wide")
+st.set_page_config(page_title="RamanHub: полупроводники", layout="wide")
 st.title("Расчёты для полупроводников")
 st.caption("Подгонка идёт по исходному спектру (без нормировки и сглаживания). "
            "Под каждым результатом — оговорки, когда ему можно доверять.")

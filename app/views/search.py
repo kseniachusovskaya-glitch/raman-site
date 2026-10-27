@@ -19,7 +19,7 @@ from ui import color, read_upload, solvent_block
 
 ROOT = Path(__file__).parent.parent.parent  # папка проекта
 
-st.set_page_config(page_title="Raman: обработка и поиск", layout="wide")
+st.set_page_config(page_title="RamanHub: обработка и поиск", layout="wide")
 
 
 # @st.cache_resource — загрузить базу один раз и держать в памяти,

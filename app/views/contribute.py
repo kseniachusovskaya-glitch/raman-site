@@ -11,7 +11,7 @@ import streamlit as st
 from ramancore.submission import FIELDS, make_submission, send_to_github, validate_submission
 from ui import X_TITLE, color, read_upload
 
-st.set_page_config(page_title="Raman: добавить спектр", layout="wide")
+st.set_page_config(page_title="RamanHub: добавить спектр", layout="wide")
 st.title("Добавить спектр в базу")
 st.write("Пришлите свой спектр эталонного образца — после проверки он появится в открытой "
          "базе для поиска, с вашим именем как автора. Чем подробнее описание, тем полезнее "

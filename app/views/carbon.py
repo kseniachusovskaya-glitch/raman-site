@@ -12,7 +12,7 @@ from ramancore.carbon import (
 from ui import fit_figure
 from ui import X_TITLE, color, show_warnings, solvent_block, upload
 
-st.set_page_config(page_title="Raman: углерод", layout="wide")
+st.set_page_config(page_title="RamanHub: углерод", layout="wide")
 st.title("Углеродные материалы")
 KINDS = {
     "dlc": "DLC и аморфный углерод (плёнки a-C, a-C:H, ta-C)",

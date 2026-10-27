@@ -24,6 +24,8 @@ pages = st.navigation([
 # Цвета графиков — в боковой панели на всех страницах. Значения
 # сохраняются в st.session_state под ключами key и читаются страницами
 with st.sidebar:
+    st.markdown("### RamanHub")
+    st.caption("Обработка рамановских спектров, расчёты для материалов и общая база эталонов")
     with st.expander("Цвета графиков"):
         st.color_picker("Ваш спектр", "#1f77b4", key="color_sample")
         st.color_picker("Эталон из базы", "#ff7f0e", key="color_ref")
