@@ -20,6 +20,7 @@ pages = st.navigation([
     st.Page("views/batch.py", title="Пакетная обработка"),
     st.Page("views/semiconductors.py", title="Полупроводники"),
     st.Page("views/carbon.py", title="Углерод"),
+    st.Page("views/polymers.py", title="Полимеры"),
     st.Page("views/contribute.py", title="Добавить спектр в базу"),
 ])
 # Цвета графиков — в боковой панели на всех страницах. Значения
