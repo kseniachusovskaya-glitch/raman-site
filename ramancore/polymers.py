@@ -22,10 +22,17 @@
   Chapron et al., J. Raman Spectrosc. 52, 1073 (2021), doi:10.1002/jrs.6081 —
       модель с аморфной фазой: лоренцианы кристалла 795 и 874 (α), 839 (β),
       гауссианы аморфной фазы 797, 809, 830, 881 см⁻¹ (центры фиксированы),
-      F(α) = ΣA(α)/(ΣA(α) + A(β)) по площадям лоренцианов, ур. (1).
+      F(α) = ΣA(α)/(ΣA(α) + A(β)) по площадям лоренцианов, ур. (1);
+  Purushothaman et al., ACS Appl. Polym. Mater. 6, 8291 (2024),
+      doi:10.1021/acsapm.4c01157 — аморфная фаза по спектру расплава при
+      200 °C (8 гауссианов 802, 812, 824, 836, 857, 876, 889, 904 см⁻¹,
+      площади 8:4:4:2:1:2:4:1; лазер 785 нм, Kaiser RXN1), кристалл —
+      Pearson VII: α 799 и 877, β 842, γ 814 и ≈830, общая α+β+γ 881;
+      TC и F(α), F(β), F(γ) — ур. (10)–(13).
 
-Два метода: fit_pvdf (Деримедведь 2025: α, γ, β со свободными центрами)
-и fit_pvdf_amorphous (Chapron 2021: α и β кристалла + аморфная фаза).
+Три метода: fit_pvdf (Деримедведь 2025: α, γ, β со свободными центрами),
+fit_pvdf_amorphous (Chapron 2021: α и β кристалла + аморфная фаза) и
+fit_pvdf_melt (Purushothaman 2024: α, β, γ + аморфная фаза по расплаву).
 
 Доли фаз в fit_pvdf — ОЦЕНКА по методу Деримедведь 2025: интенсивность линии
 каждой фазы делится на сумму трёх линий. Это предполагает одинаковое
@@ -36,8 +43,9 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
+from scipy.special import gammaln
 
-from ramancore.peaks import fit_peaks, gaussian, lorentzian, peak_area
+from ramancore.peaks import _GAUSS_AREA, fit_peaks, gaussian, lorentzian, peak_area
 
 # Положения полос CH2 rocking, см⁻¹ (начальные значения для подгонки)
 PVDF_BANDS = {"alpha": 795.0, "gamma": 811.0, "beta": 839.0}
@@ -186,4 +194,161 @@ def fit_pvdf_amorphous(x, y, window=(750.0, 900.0)):
         "f_beta": 100 * area.get("β", 0.0) / crystal if crystal > 0 else np.nan,
         "f_cryst": 100 * crystal / total if total > 0 else np.nan,
         "f_amorphous": 100 * area.get("аморф.", 0.0) / total if total > 0 else np.nan,
+    }
+
+
+# ---------- Purushothaman et al. 2024 ----------
+
+# Аморфная фаза = спектр расплава при 200 °C, разложенный на 8 гауссианов
+# (Purushothaman 2024, раздел 3.3.2.2): центры, см⁻¹, и отношение площадей
+MELT_CENTERS = (802.0, 812.0, 824.0, 836.0, 857.0, 876.0, 889.0, 904.0)
+MELT_AREA_RATIO = (8.0, 4.0, 4.0, 2.0, 1.0, 2.0, 4.0, 1.0)
+# Кристаллические полосы (там же, табл. 3 и рис. 6): центр, фаза
+MELT_CRYSTAL_BANDS = [
+    (799.0, "α"), (814.0, "γ"), (830.0, "γ"), (842.0, "β"), (877.0, "α"),
+    (881.0, "α+β+γ"),
+]
+# НАШИ допущения (в статье чисел нет): центры кристаллических полос могут
+# сдвигаться на ±4 см⁻¹; ширины (FWHM) кристалла 2–20, аморфных
+# гауссианов 6–40 см⁻¹.
+MELT_SHIFT = 4.0
+MELT_CRYSTAL_FWHM = (2.0, 20.0)
+MELT_AMORPHOUS_FWHM = (6.0, 40.0)
+
+
+def pearson7(x, center, fwhm, amplitude, m):
+    """Pearson VII: m = 1 — Лоренц, m → ∞ — Гаусс (как в Purushothaman 2024)."""
+    k = 2 ** (1 / m) - 1
+    return amplitude / (1 + 4 * k * ((x - center) / fwhm) ** 2) ** m
+
+
+def pearson7_area(fwhm, amplitude, m):
+    """Площадь пика Pearson VII (аналитически, через гамма-функцию)."""
+    k = 2 ** (1 / m) - 1
+    return amplitude * fwhm / 2 * np.sqrt(np.pi / k) * np.exp(gammaln(m - 0.5) - gammaln(m))
+
+
+def melt_template(x_melt, y_melt, x, window=(780.0, 920.0)):
+    """Готовит свой спектр расплава как профиль аморфной фазы: вырезает окно,
+    вычитает прямую через края окна (линейный фон, как в статье), переносит
+    на сетку x образца и нормирует на площадь 1."""
+    x_melt, y_melt = np.asarray(x_melt, dtype=float), np.asarray(y_melt, dtype=float)
+    order = np.argsort(x_melt)
+    x_melt, y_melt = x_melt[order], y_melt[order]
+    if x_melt.min() > window[0] or x_melt.max() < window[1]:
+        raise ValueError(f"Спектр расплава должен покрывать {window[0]:.0f}–{window[1]:.0f} см⁻¹")
+    ends = np.interp(window, x_melt, y_melt)
+    profile = np.interp(x, x_melt, y_melt)
+    profile = profile - (ends[0] + (ends[1] - ends[0]) * (x - window[0]) / (window[1] - window[0]))
+    profile = np.clip(profile, 0, None)
+    area = np.trapezoid(profile, x)
+    if area <= 0:
+        raise ValueError("В спектре расплава нет сигнала в окне")
+    return profile / area
+
+
+def fit_pvdf_melt(x, y, melt=None, window=(780.0, 920.0)):
+    """Разложение 780–920 см⁻¹ по Purushothaman et al. 2024.
+
+    Аморфная фаза:
+      melt=None      — 8 гауссианов статьи с фиксированными центрами и
+                       отношением площадей 8:4:4:2:1:2:4:1 (общий масштаб,
+                       ширины подгоняются в пределах MELT_AMORPHOUS_FWHM);
+      melt=(xm, ym)  — свой спектр расплава ПВДФ (лучше при 200 °C на том же
+                       приборе): его форма берётся целиком, подгоняется
+                       только масштаб.
+    Кристалл — 6 полос Pearson VII (MELT_CRYSTAL_BANDS), фон — прямая.
+
+    Возвращает словарь:
+      table — полосы: center, phase, fwhm, amplitude, m, area;
+      fit   — x, y, model, baseline, components, amorphous (кривая), r2;
+      tc    — общая кристалличность, %, ур. (10): все кристаллические
+              площади (включая общую 881) / все площади;
+      f_alpha, f_beta, f_gamma — доли фаз в кристалле, %, ур. (11)–(13)
+              (общая полоса 881 в них не входит).
+    """
+    x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
+    keep = (x >= window[0]) & (x <= window[1])
+    xs, ys = x[keep], y[keep]
+    n_cr = len(MELT_CRYSTAL_BANDS)
+    own = melt is not None
+    n_am = 0 if own else len(MELT_CENTERS)
+    n_params = 4 * n_cr + n_am + 3
+    if len(xs) <= n_params:
+        raise ValueError(f"В области {window[0]:.0f}–{window[1]:.0f} см⁻¹ {len(xs)} точек, а "
+                         f"параметров модели {n_params}: нужен шаг спектра ≤ 3 см⁻¹")
+    if own:
+        template = melt_template(melt[0], melt[1], xs, window)
+    ratio = np.asarray(MELT_AREA_RATIO) / np.sum(MELT_AREA_RATIO)
+
+    def amorphous(xx, p):
+        """Кривая аморфной фазы; p = [масштаб (площадь), ширины гауссианов...]."""
+        if own:
+            return p[0] * template
+        total = np.zeros_like(xx)
+        for c, share, fwhm in zip(MELT_CENTERS, ratio, p[1:]):
+            # высота гауссиана с площадью p[0]·share
+            total = total + gaussian(xx, c, fwhm, p[0] * share / (fwhm * _GAUSS_AREA))
+        return total
+
+    def model(xx, *p):
+        total = p[-2] + p[-1] * xx
+        for i in range(n_cr):
+            total = total + pearson7(xx, *p[4 * i:4 * i + 4])
+        return total + amorphous(xx, p[4 * n_cr:-2])
+
+    b0 = (ys[-1] - ys[0]) / (xs[-1] - xs[0])
+    a0 = ys[0] - b0 * xs[0]
+    signal = np.clip(ys - (a0 + b0 * xs), 0, None)
+    height = max(signal.max(), 1e-9)
+    p0, lower, upper = [], [], []
+    for c, _ in MELT_CRYSTAL_BANDS:
+        p0 += [c, 6.0, max(np.interp(c, xs, signal) / 2, height / 50), 2.0]
+        lower += [c - MELT_SHIFT, MELT_CRYSTAL_FWHM[0], 0.0, 1.0]
+        upper += [c + MELT_SHIFT, MELT_CRYSTAL_FWHM[1], np.inf, 20.0]
+    total_area = max(np.trapezoid(signal, xs), 1e-9)
+    p0 += [total_area / 2]
+    lower += [0.0]
+    upper += [np.inf]
+    if not own:
+        p0 += [15.0] * n_am
+        lower += [MELT_AMORPHOUS_FWHM[0]] * n_am
+        upper += [MELT_AMORPHOUS_FWHM[1]] * n_am
+    p0 += [a0, b0]
+    lower += [-np.inf, -np.inf]
+    upper += [np.inf, np.inf]
+    try:
+        popt, _ = curve_fit(model, xs, ys, p0=p0, bounds=(lower, upper), maxfev=40000)
+    except RuntimeError as error:
+        raise ValueError("Подгонка по модели Purushothaman не сошлась") from error
+
+    rows, components = [], []
+    for i, (_, phase) in enumerate(MELT_CRYSTAL_BANDS):
+        c, fwhm, amp, m = popt[4 * i:4 * i + 4]
+        rows.append({"center": c, "phase": phase, "fwhm": fwhm, "amplitude": amp, "m": m,
+                     "area": pearson7_area(fwhm, amp, m)})
+        components.append(pearson7(xs, c, fwhm, amp, m))
+    am = popt[4 * n_cr:-2]
+    if own:
+        rows.append({"center": np.nan, "phase": "аморф. (свой расплав)", "fwhm": np.nan,
+                     "amplitude": np.nan, "m": np.nan, "area": am[0]})
+    else:
+        for c, share, fwhm in zip(MELT_CENTERS, ratio, am[1:]):
+            rows.append({"center": c, "phase": "аморф.", "fwhm": fwhm,
+                         "amplitude": am[0] * share / (fwhm * _GAUSS_AREA), "m": np.nan,
+                         "area": am[0] * share})
+    table = pd.DataFrame(rows)
+    area = table.groupby("phase")["area"].sum()
+    phases = sum(area.get(p, 0.0) for p in ("α", "β", "γ"))
+    crystal = phases + area.get("α+β+γ", 0.0)
+    total = crystal + am[0]
+    fitted = model(xs, *popt)
+    r2 = 1 - np.sum((ys - fitted) ** 2) / np.sum((ys - ys.mean()) ** 2)
+    share = lambda p: 100 * area.get(p, 0.0) / phases if phases > 0 else np.nan
+    return {
+        "table": table,
+        "fit": {"x": xs, "y": ys, "model": fitted, "baseline": popt[-2] + popt[-1] * xs,
+                "components": components, "amorphous": amorphous(xs, am), "r2": r2},
+        "tc": 100 * crystal / total if total > 0 else np.nan,
+        "f_alpha": share("α"), "f_beta": share("β"), "f_gamma": share("γ"),
     }
