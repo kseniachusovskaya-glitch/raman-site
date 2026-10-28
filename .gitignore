@@ -13,3 +13,4 @@ data/examples/*/
 
 # Секреты Streamlit (токены) — никогда не в git
 .streamlit/secrets.toml
+data/raw/openspecy/

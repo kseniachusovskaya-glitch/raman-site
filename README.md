@@ -62,6 +62,7 @@ print(meta)
 - [x] Алмаз: двуосное напряжение по синглету и дублету (Ager & Drory 1993); наноалмаз: размер по модели фононного конфайнмента (Yoshikawa 1995); оценка примеси sp²
 - [x] Страница «Добавить спектр в базу»: форма с описанием образца и съёмки, заявка уходит в закрытый репозиторий GitHub; принятые заявки — `scripts/import_submissions.py` → `data/library_contrib/`
 - [x] Пакетная обработка (`ramancore/batch.py`, страница «Пакетная обработка»): одни и те же пики во всех файлах серии, слежение за сдвигом, отношения пиков, поиск по базе для каждого файла, среднее; число в имени файла — номер точки серии
+- [x] Полимеры, органика и пигменты из Open Specy (`ramancore/openspecy.py`, `scripts/import_openspecy.py`, `data/library_openspecy/`, 1929 эталонов, CC BY 4.0)
 - [x] Графен: `fit_graphene` (G, 2D, D), `graphene_strain_doping` (Lee et al. 2012)
 
 ## Пример: анализ пика
@@ -100,3 +101,16 @@ uv run python scripts/build_library.py
 Lafuente B., Downs R. T., Yang H., Stone N. (2015) The power of databases: the RRUFF
 project. In: *Highlights in Mineralogical Crystallography*, T. Armbruster and
 R. M. Danisi, eds. Berlin, Germany, W. De Gruyter, pp. 1–30.
+
+`data/library_openspecy/` — 1929 рамановских эталонов из открытой библиотеки
+[Open Specy](https://osf.io/x7dpz/) (без RRUFF, который уже есть): 640 полимеров
+(в том числе SLoPP), 338 органических веществ и пигментов, 918 минералов и
+соединений из Raman Open Database. Лицензия CC BY 4.0; у каждого эталона в
+`source` указан исходный источник. Спектры Open Specy сняты на сетке 6 см⁻¹,
+лазер у большинства не указан. Пересборка из файла `raw.rds` библиотеки:
+```bash
+uv run python scripts/import_openspecy.py raw.rds
+```
+Ссылка: Cowger W. et al. (2021) Microplastic Spectral Classification Needs an Open
+Source Community: Open Specy to the Rescue! *Anal. Chem.*,
+doi:10.1021/acs.analchem.1c00123.

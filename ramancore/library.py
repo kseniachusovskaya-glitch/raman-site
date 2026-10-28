@@ -40,7 +40,9 @@ def _check_metadata(meta):
     missing = [c for c in REQUIRED if c not in meta.columns]
     if missing:
         raise ValueError(f"В metadata.csv нет обязательных столбцов: {missing}")
-    for col in REQUIRED:
+    # laser_nm может быть пустым (у части открытых эталонов лазер не указан),
+    # но сам столбец обязателен
+    for col in [c for c in REQUIRED if c != "laser_nm"]:
         empty = meta[col].isna() | (meta[col].astype(str).str.strip() == "")
         if empty.any():
             ids = list(meta.loc[empty, "id"])
@@ -101,16 +103,18 @@ def load_library(library_dir="data/library", include_own=True):
       spectra_deriv — производные эталонов (длины 1), для hqi_deriv;
       params   — параметры конвейера, которыми обработаны эталоны.
 
-    Если рядом есть папки library_contrib (принятые спектры коллег) и
+    Если рядом есть папки library_openspecy (полимеры и органика из
+    Open Specy), library_contrib (принятые спектры коллег) и
     library_own (свои эталоны, не в git; только при include_own=True),
     их эталоны добавляются к основной базе.
     """
     library_dir = Path(library_dir)
     grid, spectra, metadata, params = _load_one(library_dir)
     # Рядом могут лежать ещё две базы с теми же параметрами обработки:
+    # library_openspecy — эталоны Open Specy (в git, CC BY 4.0);
     # library_contrib — спектры коллег, принятые в открытую базу (в git);
     # library_own — свои эталоны, которые в git не выкладываются
-    extra = ["library_contrib"] + (["library_own"] if include_own else [])
+    extra = ["library_openspecy", "library_contrib"] + (["library_own"] if include_own else [])
     for name in extra:
         extra_dir = library_dir.parent / name
         if not (extra_dir / "spectra.npz").exists():
