@@ -221,6 +221,8 @@ def fit_peaks(x, y, centers, shape="lorentz", margin=30.0):
         "x": xs, "y": ys, "model": model, "baseline": baseline,
         "components": components, "r2": 1 - ss_res / ss_tot,
         "baseline_coef": (popt[-2], popt[-1]),
+        # границы, в которых мог двигаться центр каждого пика (для проверок)
+        "center_bounds": [(lower[i * k], upper[i * k]) for i in range(n)],
     }
     return table, fit
 

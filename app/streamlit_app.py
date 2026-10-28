@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 pages = st.navigation([
     st.Page("views/search.py", title="Обработка и поиск", default=True),
+    st.Page("views/batch.py", title="Пакетная обработка"),
     st.Page("views/semiconductors.py", title="Полупроводники"),
     st.Page("views/carbon.py", title="Углерод"),
     st.Page("views/contribute.py", title="Добавить спектр в базу"),
